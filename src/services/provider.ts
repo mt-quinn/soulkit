@@ -73,7 +73,7 @@ ${partial
     ? `Regenerate ONLY these top-level fields: ${selectedRootKeys.join(', ')}`
     : 'Regenerate the full profile.'}
 ${lockedFieldPaths.length > 0 ? `\nLocked fields (must remain unchanged): ${lockedFieldPaths.join(', ')}` : ''}
-${constraintProfile ? `\nUse these inline workspace edits as hard constraints:\n\`\`\`json\n${JSON.stringify(constraintProfile, null, 2)}\n\`\`\`` : ''}
+${constraintProfile ? `\nConstraint fields (hard constraints):\n\`\`\`json\n${JSON.stringify(constraintProfile, null, 2)}\n\`\`\`\nPreserve these constraint values unless the user instruction explicitly asks to change them.` : ''}
 
 Target JSON schema:
 \`\`\`json

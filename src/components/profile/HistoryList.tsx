@@ -19,7 +19,11 @@ import { resolveGeneratedProfileDisplayName } from '@/lib/profileIdentity';
 import { toast } from '@/stores/toastStore';
 import { Clock, Search, X } from 'lucide-react';
 
-export function HistoryList() {
+interface HistoryListProps {
+  isActive?: boolean;
+}
+
+export function HistoryList({ isActive = true }: HistoryListProps) {
   const { profiles, activeProfile, setActiveProfile, duplicateProfile, deleteProfile } = useProfileStore();
   const { presets } = useSchemaStore();
   const { hasApiKey, settings, setDeleteWarningSuppressed } = useSettingsStore();
@@ -96,6 +100,8 @@ export function HistoryList() {
   };
 
   useEffect(() => {
+    if (!isActive) return;
+
     if (!activeProfile) {
       setConfig({
         chips: [{ id: 'view', label: 'Profiles' }],
@@ -143,9 +149,12 @@ export function HistoryList() {
         setExternalCommand({ id: commandSeq.current, text: prompt });
       },
     });
-  }, [activeProfile, activeProfileName, hasApiKey, isProfileBusy, setConfig]);
+  }, [activeProfile, activeProfileName, hasApiKey, isActive, isProfileBusy, setConfig]);
 
-  useEffect(() => () => resetConfig(), [resetConfig]);
+  useEffect(() => {
+    if (!isActive) return;
+    return () => resetConfig();
+  }, [isActive, resetConfig]);
 
   return (
     <div className="flex h-full">

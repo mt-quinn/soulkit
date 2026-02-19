@@ -89,7 +89,7 @@ export function ProfileViewer({ profile }: ProfileViewerProps) {
       {showJson ? (
         <Card>
           <CardContent className="p-4">
-            <pre className="text-xs font-mono whitespace-pre-wrap overflow-x-auto text-foreground/80">
+            <pre className="text-xs font-mono whitespace-pre-wrap break-words text-foreground/80">
               {JSON.stringify(profile.profile, null, 2)}
             </pre>
           </CardContent>
@@ -154,9 +154,11 @@ function RenderField({ fieldKey, value, depth }: { fieldKey: string; value: unkn
         return (
           <div className="space-y-1">
             <label className="text-xs font-medium text-muted-foreground">{label}</label>
-            <ol className="list-decimal list-inside space-y-0.5 text-sm">
+            <ol className="list-decimal list-inside space-y-0.5 text-sm break-words">
               {items.map((item, i) => (
-                <li key={i}>{item.replace(/^\d+\.\s+/, '')}</li>
+                <li key={i} className="whitespace-pre-wrap break-words">
+                  {item.replace(/^\d+\.\s+/, '')}
+                </li>
               ))}
             </ol>
           </div>
@@ -164,16 +166,16 @@ function RenderField({ fieldKey, value, depth }: { fieldKey: string; value: unkn
       }
 
       return (
-        <div className="space-y-1">
-          <label className="text-xs font-medium text-muted-foreground">{label}</label>
-          <div className="flex flex-wrap gap-1.5">
-            {items.map((item, i) => (
-              <Badge key={i} variant="outline" className="text-xs font-normal">
-                {item}
-              </Badge>
-            ))}
+          <div className="space-y-1">
+            <label className="text-xs font-medium text-muted-foreground">{label}</label>
+            <div className="flex flex-wrap gap-1.5">
+              {items.map((item, i) => (
+                <Badge key={i} variant="outline" className="max-w-full text-xs font-normal whitespace-normal break-words text-left">
+                  {item}
+                </Badge>
+              ))}
+            </div>
           </div>
-        </div>
       );
     }
 
@@ -224,7 +226,7 @@ function RenderField({ fieldKey, value, depth }: { fieldKey: string; value: unkn
     return (
       <div className="space-y-1">
         <label className="text-xs font-medium text-muted-foreground">{label}</label>
-        <p className="text-sm leading-relaxed whitespace-pre-wrap">{text}</p>
+        <p className="text-sm leading-relaxed whitespace-pre-wrap break-words">{text}</p>
       </div>
     );
   }
@@ -232,7 +234,7 @@ function RenderField({ fieldKey, value, depth }: { fieldKey: string; value: unkn
   return (
     <div className="flex items-start justify-between gap-4 py-1">
       <label className="text-xs font-medium text-muted-foreground shrink-0">{label}</label>
-      <span className="text-sm text-right">{text}</span>
+      <span className="max-w-[70%] text-sm text-right whitespace-pre-wrap break-words">{text}</span>
     </div>
   );
 }

@@ -13,6 +13,7 @@ function trimBuffer(value: string): string {
 
 interface ConsoleStreamState {
   isOpen: boolean;
+  openedManually: boolean;
   activeRuns: number;
   buffer: string;
   nextRunId: number;
@@ -26,12 +27,13 @@ interface ConsoleStreamState {
 
 export const useConsoleStreamStore = create<ConsoleStreamState>((set, get) => ({
   isOpen: false,
+  openedManually: false,
   activeRuns: 0,
   buffer: '',
   nextRunId: 1,
 
-  open: () => set({ isOpen: true }),
-  close: () => set((state) => (state.activeRuns > 0 ? state : { ...state, isOpen: false })),
+  open: () => set({ isOpen: true, openedManually: true }),
+  close: () => set((state) => (state.activeRuns > 0 ? state : { ...state, isOpen: false, openedManually: false })),
   clear: () => set({ buffer: '' }),
 
   startRun: (label = 'LLM run') => {
@@ -60,6 +62,7 @@ export const useConsoleStreamStore = create<ConsoleStreamState>((set, get) => ({
       const nextRuns = Math.max(0, state.activeRuns - 1);
       const footer = `\n[${nowStamp()}] <<< complete #${runId}\n`;
       return {
+        isOpen: nextRuns > 0 ? true : state.openedManually,
         activeRuns: nextRuns,
         buffer: trimBuffer(`${state.buffer}${footer}`),
       };

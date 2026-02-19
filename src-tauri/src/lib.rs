@@ -58,6 +58,25 @@ fn file_exists(path: String) -> bool {
     PathBuf::from(&path).exists()
 }
 
+#[tauri::command]
+fn save_json_with_dialog(default_file_name: String, content: String) -> Result<Option<String>, String> {
+    let selected = rfd::FileDialog::new()
+        .set_file_name(&default_file_name)
+        .add_filter("JSON", &["json"])
+        .save_file();
+
+    match selected {
+        Some(path) => {
+            if let Some(parent) = path.parent() {
+                fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+            }
+            fs::write(&path, content).map_err(|e| e.to_string())?;
+            Ok(Some(path.to_string_lossy().to_string()))
+        }
+        None => Ok(None),
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -70,6 +89,7 @@ pub fn run() {
             list_dir,
             ensure_dir,
             file_exists,
+            save_json_with_dialog,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

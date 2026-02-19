@@ -16,7 +16,11 @@ import { generateId } from '@/lib/utils';
 import type { GeneratedProfile } from '@/types';
 import { AlertCircle } from 'lucide-react';
 
-export function StudioPanel() {
+interface StudioPanelProps {
+  isActive?: boolean;
+}
+
+export function StudioPanel({ isActive = true }: StudioPanelProps) {
   const { presets } = useSchemaStore();
   const { hasApiKey, getApiKey } = useSettingsStore();
   const { setConfig, resetConfig } = useLlmBarStore();
@@ -49,6 +53,7 @@ export function StudioPanel() {
 
   const handleGenerate = useCallback(async (prompt: string) => {
     const trimmedPrompt = prompt.trim();
+    const promptForHistory = trimmedPrompt || 'Random character from schema.';
 
     if (!selectedSchema) {
       toast('No schema selected', 'Choose a schema before generating.', 'error');
@@ -56,10 +61,6 @@ export function StudioPanel() {
     }
     if (!providerHasKey) {
       toast('No API key', 'Add your OpenAI API key in Settings.', 'error');
-      return;
-    }
-    if (!trimmedPrompt) {
-      toast('No brief provided', 'Describe the character in plain text.', 'error');
       return;
     }
 
@@ -89,7 +90,7 @@ export function StudioPanel() {
               model: FIXED_MODEL_NAME,
               generatedAt: now,
               seeds: {},
-              prompt: trimmedPrompt,
+              prompt: promptForHistory,
               temperature: FIXED_TEMPERATURE,
               profile: result.profile,
               revisions: [
@@ -97,7 +98,7 @@ export function StudioPanel() {
                   id: revisionId,
                   createdAt: now,
                   kind: 'generate',
-                  prompt: trimmedPrompt,
+                  prompt: promptForHistory,
                   snapshot: result.profile,
                   confidence: evaluateConfidence(selectedSchema, result.profile, selectedSchema.generationOrder?.length ?? 1),
                 },
@@ -132,6 +133,8 @@ export function StudioPanel() {
   ]);
 
   useEffect(() => {
+    if (!isActive) return;
+
     const baseChips = [
       { id: 'view', label: 'Create' },
       { id: 'schema', label: selectedSchema ? `Schema: ${selectedSchema.name}` : 'Schema required' },
@@ -166,16 +169,20 @@ export function StudioPanel() {
 
     setConfig({
       chips: baseChips,
-      placeholder: 'Describe the character to generate with the selected schema.',
+      placeholder: 'Describe the character (optional). Leave blank for random from schema.',
       submitLabel: 'Generate',
       disabled: false,
       disabledReason: undefined,
       busy: isGenerating,
+      allowEmptyPrompt: true,
       onSubmit: handleGenerate,
     });
-  }, [handleGenerate, isGenerating, providerHasKey, selectedSchema, setConfig]);
+  }, [handleGenerate, isGenerating, isActive, providerHasKey, selectedSchema, setConfig]);
 
-  useEffect(() => () => resetConfig(), [resetConfig]);
+  useEffect(() => {
+    if (!isActive) return;
+    return () => resetConfig();
+  }, [isActive, resetConfig]);
 
   return (
     <div className="h-full overflow-y-auto bg-background">
@@ -218,7 +225,7 @@ export function StudioPanel() {
             </div>
 
             <p className="text-xs text-muted-foreground">
-              Provide a plain-text brief to generate your character.
+              Brief is optional. Leave it blank to generate a random character from this schema.
             </p>
           </CardContent>
         </Card>

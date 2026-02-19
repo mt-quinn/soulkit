@@ -10,8 +10,8 @@ const icons = {
 
 const variantStyles = {
   default: 'border-border bg-card text-card-foreground',
-  success: 'border-green-500/30 bg-green-500/10 text-green-200',
-  error: 'border-destructive/30 bg-destructive/10 text-red-200',
+  success: 'border-emerald-700 bg-emerald-950 text-emerald-100',
+  error: 'border-rose-700 bg-rose-950 text-rose-100',
 };
 
 export function Toaster() {

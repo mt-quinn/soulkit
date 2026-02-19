@@ -5,13 +5,28 @@ import { Terminal, X, Eraser } from 'lucide-react';
 export function ConsolePopup() {
   const { isOpen, activeRuns, buffer, open, close, clear } = useConsoleStreamStore();
   const preRef = useRef<HTMLPreElement | null>(null);
+  const stickToBottomRef = useRef(true);
 
   const visible = isOpen || activeRuns > 0;
   const canHide = activeRuns === 0;
 
+  const updateStickState = () => {
+    const element = preRef.current;
+    if (!element) return;
+    const threshold = 24;
+    const nearBottom = element.scrollHeight - element.scrollTop - element.clientHeight <= threshold;
+    stickToBottomRef.current = nearBottom;
+  };
+
+  useEffect(() => {
+    if (!visible) return;
+    stickToBottomRef.current = true;
+  }, [visible]);
+
   useEffect(() => {
     if (!visible) return;
     if (!preRef.current) return;
+    if (!stickToBottomRef.current) return;
     preRef.current.scrollTop = preRef.current.scrollHeight;
   }, [buffer, visible]);
 
@@ -60,6 +75,7 @@ export function ConsolePopup() {
         </div>
         <pre
           ref={preRef}
+          onScroll={updateStickState}
           className="h-72 overflow-y-auto px-3 py-2 text-xs leading-relaxed text-emerald-300/95 font-mono whitespace-pre-wrap"
         >
           {buffer || '[console ready] waiting for tokens...'}

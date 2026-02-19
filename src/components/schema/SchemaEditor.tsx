@@ -95,7 +95,11 @@ function fieldPreview(field: SchemaField | undefined): string {
 
 type EditorTab = 'fields' | 'examples' | 'settings';
 
-export function SchemaEditor() {
+interface SchemaEditorProps {
+  isActive?: boolean;
+}
+
+export function SchemaEditor({ isActive = true }: SchemaEditorProps) {
   const {
     presets,
     activePreset,
@@ -791,6 +795,8 @@ export function SchemaEditor() {
   }, [handleInlineRefine]);
 
   useEffect(() => {
+    if (!isActive) return;
+
     if (!aiHasKey) {
       setConfig({
         chips: [{ id: 'view', label: 'Schemas' }],
@@ -840,6 +846,7 @@ export function SchemaEditor() {
     aiHasKey,
     handleCreateFromCommand,
     handleRefineFromCommand,
+    isActive,
     inlineGenerating,
     inlineLockedFields.length,
     inlineSelectedFields.length,
@@ -847,7 +854,10 @@ export function SchemaEditor() {
     setConfig,
   ]);
 
-  useEffect(() => () => resetConfig(), [resetConfig]);
+  useEffect(() => {
+    if (!isActive) return;
+    return () => resetConfig();
+  }, [isActive, resetConfig]);
 
   useEffect(() => {
     if (!aiDialogOpen) return;

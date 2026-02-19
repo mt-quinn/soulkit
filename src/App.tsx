@@ -37,20 +37,25 @@ function App() {
   return (
     <AppShell>
       {(view: AppView) => {
-        switch (view) {
-          case 'generate':
-            return <StudioPanel />;
-          case 'chat':
-            return <ChatPanel />;
-          case 'schemas':
-            return <SchemaEditor />;
-          case 'history':
-            return <HistoryList />;
-          case 'settings':
-            return <SettingsPage />;
-          default:
-            return <StudioPanel />;
-        }
+        return (
+          <>
+            <div className={view === 'generate' ? 'h-full' : 'hidden h-full'}>
+              <StudioPanel isActive={view === 'generate'} />
+            </div>
+            <div className={view === 'chat' ? 'h-full' : 'hidden h-full'}>
+              <ChatPanel isActive={view === 'chat'} />
+            </div>
+            <div className={view === 'schemas' ? 'h-full' : 'hidden h-full'}>
+              <SchemaEditor isActive={view === 'schemas'} />
+            </div>
+            <div className={view === 'history' ? 'h-full' : 'hidden h-full'}>
+              <HistoryList isActive={view === 'history'} />
+            </div>
+            <div className={view === 'settings' ? 'h-full' : 'hidden h-full'}>
+              <SettingsPage />
+            </div>
+          </>
+        );
       }}
     </AppShell>
   );

@@ -44,6 +44,13 @@ async function tauriExists(path: string): Promise<boolean> {
   return invoke<boolean>('file_exists', { path });
 }
 
+async function tauriSaveJsonWithDialog(defaultFileName: string, content: string): Promise<string | null> {
+  return invoke<string | null>('save_json_with_dialog', {
+    defaultFileName,
+    content,
+  });
+}
+
 // ---- LocalStorage fallback for browser dev ----
 
 function lsKey(path: string): string {
@@ -136,5 +143,46 @@ export const storage = {
     } else {
       return localStorage.getItem(lsKey(fullPath)) !== null;
     }
+  },
+
+  async saveJsonWithDialog(defaultFileName: string, data: unknown): Promise<string | null> {
+    const content = JSON.stringify(data, null, 2);
+
+    if (isTauri()) {
+      return tauriSaveJsonWithDialog(defaultFileName, content);
+    }
+
+    if ('showSaveFilePicker' in window) {
+      try {
+        const handle = await (window as unknown as {
+          showSaveFilePicker: (options?: unknown) => Promise<{
+            createWritable: () => Promise<{ write: (data: string) => Promise<void>; close: () => Promise<void> }>;
+          }>;
+        }).showSaveFilePicker({
+          suggestedName: defaultFileName,
+          types: [
+            {
+              description: 'JSON Files',
+              accept: { 'application/json': ['.json'] },
+            },
+          ],
+        });
+        const writable = await handle.createWritable();
+        await writable.write(content);
+        await writable.close();
+        return defaultFileName;
+      } catch {
+        return null;
+      }
+    }
+
+    const blob = new Blob([content], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = defaultFileName;
+    anchor.click();
+    URL.revokeObjectURL(url);
+    return defaultFileName;
   },
 };

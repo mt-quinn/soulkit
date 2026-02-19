@@ -134,6 +134,8 @@ export function buildUserPrompt(
   userInput: string,
   jsonSchema: Record<string, unknown>
 ): string {
+  const brief = userInput.trim();
+  const hasBrief = brief.length > 0;
   let prompt = `Generate a character profile matching this JSON Schema:\n\n\`\`\`json\n${JSON.stringify(jsonSchema, null, 2)}\n\`\`\`\n`;
 
   // Add field-level generation hints
@@ -151,10 +153,16 @@ export function buildUserPrompt(
     prompt += `\nGenerate a NEW profile at this same level of quality. Do not copy or closely imitate the examples — create something original.\n`;
   }
 
-  prompt += `\nUser brief (the character must satisfy this brief):\n${userInput.trim()}\n`;
-  prompt += `\nInterpret the brief and fill ALL schema fields, even if the user does not mention each one explicitly.`;
-  prompt += `\nDo not ask follow-up questions. Infer reasonable details while staying faithful to the brief.\n`;
-  prompt += `\nDefault to concise output. Keep text fields brief unless the brief explicitly asks for longer prose.\n`;
+  if (hasBrief) {
+    prompt += `\nUser brief (the character must satisfy this brief):\n${brief}\n`;
+    prompt += `\nInterpret the brief and fill ALL schema fields, even if the user does not mention each one explicitly.`;
+    prompt += `\nDo not ask follow-up questions. Infer reasonable details while staying faithful to the brief.\n`;
+    prompt += `\nDefault to concise output. Keep text fields brief unless the brief explicitly asks for longer prose.\n`;
+  } else {
+    prompt += `\nNo user brief was provided. Generate a random, original character that still fits this schema and remains internally consistent.\n`;
+    prompt += `\nDo not ask follow-up questions. Make decisive choices and fill ALL schema fields.\n`;
+    prompt += `\nDefault to concise output.\n`;
+  }
   prompt += `\nIf schema descriptions contain broad length ranges, treat those as maximums and prefer the shortest high-quality answer.\n`;
 
   prompt += `\nRespond with ONLY the JSON object. No additional text, explanations, or markdown formatting.`;
@@ -199,6 +207,8 @@ export function buildPassUserPrompt(
   userInput: string,
   passIndex: number
 ): string {
+  const brief = userInput.trim();
+  const hasBrief = brief.length > 0;
   const hasPrior = Object.keys(priorOutput).length > 0;
 
   let prompt = '';
@@ -219,7 +229,11 @@ export function buildPassUserPrompt(
 
   // The fields to generate in this pass
   prompt += `Now generate ONLY the following fields as a JSON object:\n\n\`\`\`json\n${JSON.stringify(passJsonSchema, null, 2)}\n\`\`\`\n`;
-  prompt += `\nUser brief:\n${userInput.trim()}\n`;
+  if (hasBrief) {
+    prompt += `\nUser brief:\n${brief}\n`;
+  } else {
+    prompt += `\nNo user brief was provided. Continue generating a random, original character that fits the schema and remains consistent with prior fields.\n`;
+  }
 
   // Field-level generation hints for this pass
   const hintAnnotations = collectHintAnnotations(passFields);
@@ -243,8 +257,10 @@ export function buildPassUserPrompt(
     prompt += `\nFor calibration fields: select well-known fictional characters whose personality and energy closely match the profile established above. Format as "Name (Source)" and choose references that would help an LLM calibrate the right tone and style.\n`;
   }
 
-  prompt += `\nInterpret the brief and prior fields to infer any missing detail while keeping strong internal consistency.\n`;
-  prompt += `\nDefault to concise outputs: most text fields under 25 words; narrative/description fields under 45 words unless the brief explicitly asks for more.\n`;
+  prompt += hasBrief
+    ? '\nInterpret the brief and prior fields to infer any missing detail while keeping strong internal consistency.\n'
+    : '\nInterpret prior fields to infer any missing detail while keeping strong internal consistency.\n';
+  prompt += `\nDefault to concise outputs: most text fields under 25 words; narrative/description fields under 45 words${hasBrief ? ' unless the brief explicitly asks for more' : ''}.\n`;
 
   prompt += `\nRespond with ONLY the JSON object containing the requested fields. No additional text.`;
   return prompt;

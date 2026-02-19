@@ -11,6 +11,7 @@ import { Badge } from '@/components/ui/Badge';
 import { toast } from '@/stores/toastStore';
 import { formatDate, generateId, truncate } from '@/lib/utils';
 import { resolveProfileDisplayName, resolveProfileNameFieldKey } from '@/lib/profileIdentity';
+import { storage } from '@/lib/storage';
 import { ProfileStructuredFieldInput } from './ProfileStructuredFieldInput';
 import {
   applyPathSelections,
@@ -18,6 +19,7 @@ import {
   diffPaths,
   evaluateConfidence,
   getPathValue,
+  setPathValue,
 } from '@/lib/workspace';
 import type { ConfidenceReport, GeneratedProfile, ProfileRevision, ProfileRevisionKind, SchemaField } from '@/types';
 import {
@@ -29,6 +31,7 @@ import {
   Sparkles,
   WandSparkles,
   MessagesSquare,
+  Download,
 } from 'lucide-react';
 
 interface ProfileRefinePanelProps {
@@ -89,6 +92,30 @@ function renderValue(value: unknown): string {
   return JSON.stringify(value);
 }
 
+function toSafeFileName(value: string): string {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9\s_-]/g, '')
+    .replace(/\s+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^[-_]+|[-_]+$/g, '');
+}
+
+function buildConstraintPatch(
+  baseProfile: Record<string, unknown>,
+  draftProfile: Record<string, unknown>
+): Record<string, unknown> | undefined {
+  const changedPaths = diffPaths(baseProfile, draftProfile).filter((path) => path !== '$');
+  if (changedPaths.length === 0) return undefined;
+
+  let patch: Record<string, unknown> = {};
+  for (const path of changedPaths) {
+    patch = setPathValue(patch, path, getPathValue(draftProfile, path));
+  }
+  return patch;
+}
+
 function ConfidenceStrip({ confidence }: { confidence: ConfidenceReport }) {
   return (
     <div className="flex flex-wrap items-center gap-2 text-[11px]">
@@ -143,7 +170,7 @@ export function ProfileRefinePanel({
   const [fieldDraft, setFieldDraft] = useState<Record<string, unknown>>(profile.profile);
   const [workspaceDraft, setWorkspaceDraft] = useState('');
   const [workspaceError, setWorkspaceError] = useState('');
-  const [useWorkspaceConstraints, setUseWorkspaceConstraints] = useState(true);
+  const [useWorkspaceConstraints, setUseWorkspaceConstraints] = useState(false);
   const [autoAcceptChanges, setAutoAcceptChanges] = useState(false);
 
   const lastExternalCommandId = useRef<number | null>(null);
@@ -203,6 +230,7 @@ export function ProfileRefinePanel({
     setFieldDraft(cloneJson(profile.profile));
     setWorkspaceDraft(JSON.stringify(profile.profile, null, 2));
     setWorkspaceError('');
+    setUseWorkspaceConstraints(false);
     setTransformSuggestions(DEFAULT_TRANSFORMS);
   }, [profile.id, profile.profile]);
 
@@ -261,10 +289,10 @@ export function ProfileRefinePanel({
     }
   }, [schema, hasApiKey, getApiKey, fieldDraft, selectedFields]);
 
-  const parseWorkspaceConstraints = useCallback((): Record<string, unknown> | undefined => {
+  const parseWorkspaceConstraints = useCallback((baseProfile: Record<string, unknown>): Record<string, unknown> | undefined => {
     if (!useWorkspaceConstraints) return undefined;
     setWorkspaceError('');
-    return cloneJson(fieldDraft);
+    return buildConstraintPatch(baseProfile, fieldDraft);
   }, [useWorkspaceConstraints, fieldDraft]);
 
   const handleRun = useCallback(async (instruction: string) => {
@@ -281,11 +309,7 @@ export function ProfileRefinePanel({
       return;
     }
 
-    const constraints = parseWorkspaceConstraints();
-    if (useWorkspaceConstraints && !constraints) {
-      toast('Invalid workspace JSON', 'Fix JSON errors or disable workspace constraints.', 'error');
-      return;
-    }
+    const constraints = parseWorkspaceConstraints(cloneJson(profile.profile));
 
     const currentSnapshot = cloneJson(fieldDraft);
 
@@ -368,7 +392,6 @@ export function ProfileRefinePanel({
     fieldDraft,
     selectedFields,
     lockedFields,
-    useWorkspaceConstraints,
     autoAcceptChanges,
     updateProfile,
     onProfileUpdated,
@@ -551,6 +574,26 @@ export function ProfileRefinePanel({
     setActiveProfile(profile.id);
     setActiveView('chat');
   };
+  const saveProfileJson = async () => {
+    const displayName = resolveProfileDisplayName(fieldDraft, { schema, fallback: profile.schemaName || 'character' });
+    const safeName = toSafeFileName(displayName) || 'character';
+    const defaultFileName = `${safeName}-${profile.id.slice(0, 8)}.json`;
+    const exportPayload = cloneJson(fieldDraft);
+
+    try {
+      const savedPath = await storage.saveJsonWithDialog(defaultFileName, exportPayload);
+      if (savedPath) {
+        toast('Profile saved', 'Character JSON saved successfully.', 'success');
+      }
+    } catch (error) {
+      const message = error instanceof Error
+        ? error.message
+        : typeof error === 'string'
+          ? error
+          : 'Failed to save profile JSON.';
+      toast('Save failed', message, 'error');
+    }
+  };
 
   if (!schema) {
     return (
@@ -630,15 +673,25 @@ export function ProfileRefinePanel({
               <WandSparkles className="h-4 w-4" />
               Character
             </CardTitle>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={openChatWithCurrentProfile}
-              className="h-8"
-            >
-              <MessagesSquare className="h-3.5 w-3.5" />
-              Chat
-            </Button>
+            <div className="flex items-center gap-2">
+              <Button
+                size="sm"
+                onClick={() => void saveProfileJson()}
+                className="h-8"
+              >
+                <Download className="h-3.5 w-3.5" />
+                Save .json
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={openChatWithCurrentProfile}
+                className="h-8"
+              >
+                <MessagesSquare className="h-3.5 w-3.5" />
+                Chat
+              </Button>
+            </div>
           </div>
         </CardHeader>
         <CardContent className="space-y-5">

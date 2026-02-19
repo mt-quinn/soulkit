@@ -35,7 +35,7 @@ export function ProfileCard({ profile, active, onClick, compact, onDuplicate, on
       <CardHeader className={compact ? 'p-3 pb-1' : undefined}>
         <div className="flex items-start justify-between gap-2">
           <div className="min-w-0">
-            <CardTitle className={cn('truncate', compact ? 'text-sm' : 'text-base')}>
+            <CardTitle className={cn('whitespace-normal break-words leading-snug', compact ? 'text-sm' : 'text-base')}>
               {displayName}
             </CardTitle>
             <p className="text-[10px] text-muted-foreground mt-0.5">

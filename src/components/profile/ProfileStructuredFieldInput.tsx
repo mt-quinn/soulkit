@@ -129,6 +129,40 @@ function formatRankedItems(items: string[]): string[] {
   return items.map((item, index) => `${index + 1}. ${item.trim()}`);
 }
 
+function autoGrowTextarea(element: HTMLTextAreaElement, minHeight: number) {
+  element.style.height = '0px';
+  element.style.height = `${Math.max(minHeight, element.scrollHeight)}px`;
+}
+
+function AutoGrowTextInput({
+  value,
+  disabled,
+  onChange,
+  minHeight = 38,
+  rows = 1,
+}: {
+  value: string;
+  disabled: boolean;
+  onChange: (value: string) => void;
+  minHeight?: number;
+  rows?: number;
+}) {
+  return (
+    <Textarea
+      ref={(node) => {
+        if (!node) return;
+        autoGrowTextarea(node, minHeight);
+      }}
+      rows={rows}
+      value={value}
+      onChange={(event) => onChange(event.target.value)}
+      onInput={(event) => autoGrowTextarea(event.currentTarget, minHeight)}
+      className="min-h-0 overflow-hidden resize-none whitespace-pre-wrap break-words text-sm leading-relaxed"
+      disabled={disabled}
+    />
+  );
+}
+
 interface StringListEditorProps {
   items: string[];
   disabled: boolean;
@@ -185,21 +219,18 @@ function StringListEditor({
               </Badge>
             )}
             <div className="flex-1">
-              {multiline ? (
-                <Textarea
-                  value={item}
-                  onChange={(event) => updateItem(index, event.target.value)}
-                  className="min-h-[72px] text-sm leading-relaxed"
-                  disabled={disabled}
-                />
-              ) : (
-                <Input
-                  value={item}
-                  onChange={(event) => updateItem(index, event.target.value)}
-                  className="h-9 text-sm"
-                  disabled={disabled}
-                />
-              )}
+              <Textarea
+                ref={(node) => {
+                  if (!node) return;
+                  autoGrowTextarea(node, multiline ? 72 : 38);
+                }}
+                rows={multiline ? 3 : 1}
+                value={item}
+                onChange={(event) => updateItem(index, event.target.value)}
+                onInput={(event) => autoGrowTextarea(event.currentTarget, multiline ? 72 : 38)}
+                className="min-h-0 overflow-hidden resize-none text-sm leading-relaxed"
+                disabled={disabled}
+              />
             </div>
             <Button
               variant="ghost"
@@ -575,10 +606,11 @@ export function ProfileStructuredFieldInput({
     if (options.length === 0) {
       const textValue = typeof value === 'string' ? value : value == null ? '' : String(value);
       return (
-        <Input
+        <AutoGrowTextInput
           value={textValue}
-          onChange={(event) => onChange(event.target.value)}
-          className="h-9 text-sm"
+          onChange={onChange}
+          minHeight={38}
+          rows={1}
           disabled={disabled}
         />
       );
@@ -654,23 +686,12 @@ export function ProfileStructuredFieldInput({
   }
 
   const textValue = typeof value === 'string' ? value : value == null ? '' : String(value);
-  const useTextarea = textValue.length > 140 || textValue.includes('\n');
-  if (useTextarea) {
-    return (
-      <Textarea
-        value={textValue}
-        onChange={(event) => onChange(event.target.value)}
-        className="min-h-[92px] text-sm leading-relaxed"
-        disabled={disabled}
-      />
-    );
-  }
-
   return (
-    <Input
+    <AutoGrowTextInput
       value={textValue}
-      onChange={(event) => onChange(event.target.value)}
-      className="h-9 text-sm"
+      onChange={onChange}
+      minHeight={textValue.includes('\n') || textValue.length > 120 ? 92 : 38}
+      rows={textValue.includes('\n') || textValue.length > 120 ? 3 : 1}
       disabled={disabled}
     />
   );

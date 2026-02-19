@@ -14,7 +14,11 @@ import { resolveGeneratedProfileDisplayName } from '@/lib/profileIdentity';
 import { generateCharacterReply, generateSceneFromSchema, type ChatTurn } from '@/services/chat';
 import { AlertCircle, Loader2, MessagesSquare, Sparkles } from 'lucide-react';
 
-export function ChatPanel() {
+interface ChatPanelProps {
+  isActive?: boolean;
+}
+
+export function ChatPanel({ isActive = true }: ChatPanelProps) {
   const { profiles, activeProfile } = useProfileStore();
   const { presets } = useSchemaStore();
   const { hasApiKey, getApiKey } = useSettingsStore();
@@ -27,6 +31,7 @@ export function ChatPanel() {
   const [isSending, setIsSending] = useState(false);
 
   const lastSelectedProfile = useRef<string>('');
+  const scrollContainerRef = useRef<HTMLDivElement | null>(null);
 
   const profileById = useMemo(() => {
     return new Map(profiles.map((profile) => [profile.id, profile]));
@@ -93,6 +98,18 @@ export function ChatPanel() {
       lastSelectedProfile.current = selectedProfileId;
     }
   }, [selectedProfileId]);
+
+  useEffect(() => {
+    if (messages.length === 0) return;
+    const element = scrollContainerRef.current;
+    if (!element) return;
+    requestAnimationFrame(() => {
+      element.scrollTo({
+        top: element.scrollHeight,
+        behavior: 'smooth',
+      });
+    });
+  }, [messages.length]);
 
   const handleGenerateScene = useCallback(async () => {
     if (!selectedProfile) {
@@ -161,6 +178,8 @@ export function ChatPanel() {
   }, [selectedProfile, selectedSchema, scene, hasApiKey, getApiKey, isSending, messages]);
 
   useEffect(() => {
+    if (!isActive) return;
+
     const chips = [
       { id: 'view', label: 'Chat' },
       { id: 'character', label: selectedDisplayName ? `Character: ${selectedDisplayName}` : 'Character required' },
@@ -221,6 +240,7 @@ export function ChatPanel() {
     selectedProfile,
     selectedDisplayName,
     scene,
+    isActive,
     hasApiKey,
     isSending,
     isGeneratingScene,
@@ -228,10 +248,13 @@ export function ChatPanel() {
     handleSendMessage,
   ]);
 
-  useEffect(() => () => resetConfig(), [resetConfig]);
+  useEffect(() => {
+    if (!isActive) return;
+    return () => resetConfig();
+  }, [isActive, resetConfig]);
 
   return (
-    <div className="h-full overflow-y-auto bg-background">
+    <div ref={scrollContainerRef} className="h-full overflow-y-auto bg-background">
       <div className="mx-auto max-w-4xl p-6 space-y-4">
         <div>
           <h2 className="text-xl font-semibold tracking-tight">Chat</h2>
@@ -333,7 +356,7 @@ export function ChatPanel() {
                   >
                     <div
                       className={cn(
-                        'max-w-[85%] rounded-lg border px-3 py-2 text-sm leading-relaxed whitespace-pre-wrap',
+                        'max-w-[85%] rounded-lg border px-3 py-2 text-sm leading-relaxed whitespace-pre-wrap break-words',
                         message.role === 'user'
                           ? 'border-primary/40 bg-primary/10 text-foreground'
                           : 'border-border bg-muted/40 text-foreground'

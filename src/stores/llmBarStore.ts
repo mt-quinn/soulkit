@@ -12,6 +12,7 @@ export interface LlmBarConfig {
   disabled: boolean;
   disabledReason?: string;
   busy: boolean;
+  allowEmptyPrompt?: boolean;
   onSubmit?: (prompt: string) => Promise<void> | void;
 }
 
@@ -30,6 +31,7 @@ const DEFAULT_CONFIG: LlmBarConfig = {
   disabled: true,
   disabledReason: 'Switch to a workspace with active LLM context.',
   busy: false,
+  allowEmptyPrompt: false,
 };
 
 export const useLlmBarStore = create<LlmBarState>((set) => ({
@@ -37,11 +39,11 @@ export const useLlmBarStore = create<LlmBarState>((set) => ({
   config: DEFAULT_CONFIG,
   setPrompt: (prompt) => set({ prompt }),
   setConfig: (config) =>
-    set((state) => ({
+    set({
       config: {
-        ...state.config,
+        ...DEFAULT_CONFIG,
         ...config,
       },
-    })),
+    }),
   resetConfig: () => set({ config: DEFAULT_CONFIG }),
 }));

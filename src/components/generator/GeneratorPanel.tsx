@@ -44,16 +44,15 @@ export function GeneratorPanel() {
   };
 
   const handleGenerate = useCallback(async () => {
+    const trimmedInput = userInput.trim();
+    const promptForHistory = trimmedInput || 'Random character from schema.';
+
     if (!selectedSchema) {
       toast('No schema selected', 'Please select a schema preset first.', 'error');
       return;
     }
     if (!providerHasKey) {
       toast('No API key', 'Please add your OpenAI API key in Settings.', 'error');
-      return;
-    }
-    if (!userInput.trim()) {
-      toast('No brief provided', 'Describe what you want in plain text.', 'error');
       return;
     }
 
@@ -63,7 +62,7 @@ export function GeneratorPanel() {
 
     try {
       await new Promise<void>((resolve, reject) => {
-        generateProfile(apiKey, selectedSchema, userInput.trim(), {
+        generateProfile(apiKey, selectedSchema, trimmedInput, {
           onPassStart: (passIndex, passTotal, fieldKeys) => {
             setPassInfo(passIndex, passTotal, fieldKeys);
           },
@@ -82,7 +81,7 @@ export function GeneratorPanel() {
               model: FIXED_MODEL_NAME,
               generatedAt: now,
               seeds: {},
-              prompt: userInput.trim(),
+              prompt: promptForHistory,
               temperature: FIXED_TEMPERATURE,
               profile: result.profile,
               revisions: [
@@ -90,7 +89,7 @@ export function GeneratorPanel() {
                   id: revisionId,
                   createdAt: now,
                   kind: 'generate',
-                  prompt: userInput.trim(),
+                  prompt: promptForHistory,
                   snapshot: result.profile,
                   confidence: evaluateConfidence(selectedSchema, result.profile, selectedSchema.generationOrder?.length ?? 1),
                 },
@@ -177,10 +176,10 @@ export function GeneratorPanel() {
                   value={userInput}
                   onChange={(e) => setUserInput(e.target.value)}
                   className="min-h-[180px] text-sm"
-                  placeholder="Describe the character you want. Include personality, tone, role, constraints, and any must-have details."
+                  placeholder="Describe the character you want (optional). Leave blank for a random character from the schema."
                 />
                 <p className="text-xs text-muted-foreground">
-                  The model will fill all schema fields from this brief only.
+                  Brief is optional. If blank, generation is random within the selected schema.
                 </p>
               </CardContent>
             </Card>
@@ -211,7 +210,7 @@ export function GeneratorPanel() {
 
             <Button
               onClick={handleGenerate}
-              disabled={isGenerating || !selectedSchema || !providerHasKey || !userInput.trim()}
+              disabled={isGenerating || !selectedSchema || !providerHasKey}
               size="lg"
               className="w-full"
             >
@@ -274,7 +273,7 @@ export function GeneratorPanel() {
                 </p>
               ) : (
                 <p className="text-sm text-muted-foreground">
-                  Submit a character brief to generate a profile.
+                  Generate from a brief, or leave it blank for a random character.
                 </p>
               )}
             </CardContent>

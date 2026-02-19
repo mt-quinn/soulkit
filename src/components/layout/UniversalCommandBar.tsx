@@ -31,7 +31,7 @@ export function UniversalCommandBar() {
   const handleSubmit = async () => {
     if (busy) return;
     const text = prompt.trim();
-    if (!text || !config.onSubmit || config.disabled) return;
+    if ((!text && !config.allowEmptyPrompt) || !config.onSubmit || config.disabled) return;
 
     setSubmitting(true);
     try {
@@ -73,7 +73,7 @@ export function UniversalCommandBar() {
           />
           <button
             onClick={() => void handleSubmit()}
-            disabled={config.disabled || busy || !prompt.trim()}
+            disabled={config.disabled || busy || (!prompt.trim() && !config.allowEmptyPrompt)}
             className="h-10 rounded-xl bg-primary px-4 text-sm font-medium text-primary-foreground disabled:opacity-60 cursor-pointer"
           >
             {busy ? (
