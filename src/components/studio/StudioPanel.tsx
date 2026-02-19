@@ -14,7 +14,7 @@ import { toast } from '@/stores/toastStore';
 import { evaluateConfidence } from '@/lib/workspace';
 import { generateId } from '@/lib/utils';
 import type { GeneratedProfile } from '@/types';
-import { AlertCircle, ChevronDown } from 'lucide-react';
+import { AlertCircle } from 'lucide-react';
 
 export function StudioPanel() {
   const { presets } = useSchemaStore();
@@ -23,20 +23,12 @@ export function StudioPanel() {
   const { setActiveView } = useNavigationStore();
   const {
     isGenerating,
-    streamContent,
-    currentPass,
-    totalPasses,
-    currentPassKeys,
     setGenerating,
-    setStreamContent,
-    appendStreamContent,
-    setPassInfo,
     addProfile,
     setActiveProfile,
   } = useProfileStore();
 
   const [selectedSchemaId, setSelectedSchemaId] = useState('');
-  const [showStream, setShowStream] = useState(true);
 
   const selectedSchema = useMemo(
     () => presets.find((preset) => preset.id === selectedSchemaId) ?? null,
@@ -73,20 +65,15 @@ export function StudioPanel() {
 
     const apiKey = getApiKey();
     setGenerating(true);
-    setStreamContent('');
-    setShowStream(true);
 
     try {
       await new Promise<void>((resolve, reject) => {
         generateProfile(apiKey, selectedSchema, trimmedPrompt, {
-          onPassStart: (passIndex, passTotal, fieldKeys) => {
-            setPassInfo(passIndex, passTotal, fieldKeys);
-            if (passIndex > 0) {
-              appendStreamContent(`\n\n--- Pass ${passIndex + 1}/${passTotal} ---\n\n`);
-            }
+          onPassStart: () => {
+            // no-op
           },
-          onToken: (token) => {
-            appendStreamContent(token);
+          onToken: () => {
+            // console popup handles raw token stream globally
           },
           onPassComplete: () => {
             // no-op
@@ -133,16 +120,12 @@ export function StudioPanel() {
       // handled with toast
     } finally {
       setGenerating(false);
-      setPassInfo(0, 1, []);
     }
   }, [
     selectedSchema,
     providerHasKey,
     getApiKey,
     setGenerating,
-    setStreamContent,
-    setPassInfo,
-    appendStreamContent,
     addProfile,
     setActiveProfile,
     setActiveView,
@@ -245,56 +228,6 @@ export function StudioPanel() {
             <AlertCircle className="h-4 w-4 shrink-0" />
             <span>No API key configured for OpenAI. Add one in Settings.</span>
           </div>
-        )}
-
-        {(isGenerating || streamContent) && (
-          <Card>
-            <CardHeader className="pb-3">
-              <CardTitle className="text-sm">Generation Stream</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              {totalPasses > 1 ? (
-                <div className="flex items-center gap-2">
-                  {Array.from({ length: totalPasses }).map((_, index) => (
-                    <div
-                      key={index}
-                      className={`h-1.5 flex-1 rounded-full transition-colors ${
-                        index < currentPass ? 'bg-primary' : index === currentPass && isGenerating ? 'bg-primary animate-pulse' : 'bg-muted'
-                      }`}
-                    />
-                  ))}
-                </div>
-              ) : (
-                <div className="h-1.5 rounded-full bg-muted overflow-hidden">
-                  <div className={`h-full bg-primary ${isGenerating ? 'w-1/2 animate-pulse' : 'w-full'}`} />
-                </div>
-              )}
-
-              <div className="flex items-center justify-between gap-2">
-                <p className="text-[11px] text-muted-foreground">
-                  {isGenerating
-                    ? totalPasses > 1
-                      ? `Pass ${currentPass + 1} of ${totalPasses}`
-                      : 'Generating profile'
-                    : 'Generation complete'}
-                  {currentPassKeys.length > 0 && ` · ${currentPassKeys.join(', ')}`}
-                </p>
-                <button
-                  onClick={() => setShowStream((prev) => !prev)}
-                  className="text-[11px] text-muted-foreground hover:text-foreground cursor-pointer inline-flex items-center gap-1"
-                >
-                  <ChevronDown className={`h-3.5 w-3.5 transition-transform ${showStream ? 'rotate-180' : ''}`} />
-                  Raw stream
-                </button>
-              </div>
-
-              {showStream && (
-                <pre className="text-xs font-mono whitespace-pre-wrap text-muted-foreground rounded-md border border-border p-3">
-                  {streamContent || 'Waiting for tokens...'}
-                </pre>
-              )}
-            </CardContent>
-          </Card>
         )}
       </div>
     </div>

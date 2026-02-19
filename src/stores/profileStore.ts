@@ -34,7 +34,6 @@ interface ProfileState {
   activeProfile: GeneratedProfile | null;
   loaded: boolean;
   isGenerating: boolean;
-  streamContent: string;
   currentPass: number;
   totalPasses: number;
   currentPassKeys: string[];
@@ -45,8 +44,6 @@ interface ProfileState {
   setActiveProfile: (id: string | null) => void;
   updateProfile: (profile: GeneratedProfile) => Promise<void>;
   setGenerating: (generating: boolean) => void;
-  setStreamContent: (content: string) => void;
-  appendStreamContent: (token: string) => void;
   setPassInfo: (current: number, total: number, keys: string[]) => void;
   resetGenerationState: () => void;
 }
@@ -56,7 +53,6 @@ export const useProfileStore = create<ProfileState>((set, get) => ({
   activeProfile: null,
   loaded: false,
   isGenerating: false,
-  streamContent: '',
   currentPass: 0,
   totalPasses: 1,
   currentPassKeys: [],
@@ -151,14 +147,9 @@ export const useProfileStore = create<ProfileState>((set, get) => ({
 
   setGenerating: (generating) => set({ isGenerating: generating }),
 
-  setStreamContent: (content) => set({ streamContent: content }),
-
-  appendStreamContent: (token) =>
-    set((state) => ({ streamContent: state.streamContent + token })),
-
   setPassInfo: (current, total, keys) =>
     set({ currentPass: current, totalPasses: total, currentPassKeys: keys }),
 
   resetGenerationState: () =>
-    set({ isGenerating: false, streamContent: '', currentPass: 0, totalPasses: 1, currentPassKeys: [] }),
+    set({ isGenerating: false, currentPass: 0, totalPasses: 1, currentPassKeys: [] }),
 }));

@@ -4,6 +4,7 @@ import { SettingsPage } from '@/components/settings/SettingsPage';
 import { SchemaEditor } from '@/components/schema/SchemaEditor';
 import { HistoryList } from '@/components/profile/HistoryList';
 import { StudioPanel } from '@/components/studio/StudioPanel';
+import { ChatPanel } from '@/components/chat/ChatPanel';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { useSchemaStore } from '@/stores/schemaStore';
 import { useProfileStore } from '@/stores/profileStore';
@@ -39,6 +40,8 @@ function App() {
         switch (view) {
           case 'generate':
             return <StudioPanel />;
+          case 'chat':
+            return <ChatPanel />;
           case 'schemas':
             return <SchemaEditor />;
           case 'history':

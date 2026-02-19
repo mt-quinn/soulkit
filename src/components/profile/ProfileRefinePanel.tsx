@@ -2,33 +2,33 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { useSchemaStore } from '@/stores/schemaStore';
 import { useProfileStore } from '@/stores/profileStore';
+import { useNavigationStore } from '@/stores/navigationStore';
 import { refineProfile, suggestProfileTransforms } from '@/services/provider';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
-import { Input } from '@/components/ui/Input';
 import { Textarea } from '@/components/ui/Textarea';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
 import { toast } from '@/stores/toastStore';
 import { formatDate, generateId, truncate } from '@/lib/utils';
 import { resolveProfileDisplayName, resolveProfileNameFieldKey } from '@/lib/profileIdentity';
+import { ProfileStructuredFieldInput } from './ProfileStructuredFieldInput';
 import {
   applyPathSelections,
   cloneJson,
   diffPaths,
   evaluateConfidence,
-  flattenFieldOptions,
   getPathValue,
 } from '@/lib/workspace';
-import type { ConfidenceReport, GeneratedProfile, ProfileRevision, ProfileRevisionKind } from '@/types';
+import type { ConfidenceReport, GeneratedProfile, ProfileRevision, ProfileRevisionKind, SchemaField } from '@/types';
 import {
   AlertCircle,
-  ChevronDown,
   CheckCircle2,
   GitBranch,
   Loader2,
   RotateCcw,
   Sparkles,
   WandSparkles,
+  MessagesSquare,
 } from 'lucide-react';
 
 interface ProfileRefinePanelProps {
@@ -108,14 +108,10 @@ function ConfidenceStrip({ confidence }: { confidence: ConfidenceReport }) {
   );
 }
 
-function defaultComplexDrafts(snapshot: Record<string, unknown>): Record<string, string> {
-  const drafts: Record<string, string> = {};
-  for (const [key, value] of Object.entries(snapshot)) {
-    if (value && typeof value === 'object') {
-      drafts[key] = JSON.stringify(value, null, 2);
-    }
-  }
-  return drafts;
+interface TopLevelFieldOption {
+  path: string;
+  label: string;
+  schemaField?: SchemaField;
 }
 
 export function ProfileRefinePanel({
@@ -127,14 +123,14 @@ export function ProfileRefinePanel({
 }: ProfileRefinePanelProps) {
   const { hasApiKey, getApiKey } = useSettingsStore();
   const { presets } = useSchemaStore();
-  const { updateProfile, addProfile } = useProfileStore();
+  const { updateProfile, addProfile, setActiveProfile } = useProfileStore();
+  const { setActiveView } = useNavigationStore();
 
   const [command, setCommand] = useState('');
   const [selectedFields, setSelectedFields] = useState<string[]>([]);
   const [lockedFields, setLockedFields] = useState<string[]>([]);
   const [isRefining, setIsRefining] = useState(false);
   const [isSuggesting, setIsSuggesting] = useState(false);
-  const [stream, setStream] = useState('');
   const [pipelineStage, setPipelineStage] = useState(0);
   const [pipelineStarted, setPipelineStarted] = useState(false);
 
@@ -145,12 +141,10 @@ export function ProfileRefinePanel({
   const [candidateConfidence, setCandidateConfidence] = useState<ConfidenceReport | null>(null);
 
   const [fieldDraft, setFieldDraft] = useState<Record<string, unknown>>(profile.profile);
-  const [complexFieldDrafts, setComplexFieldDrafts] = useState<Record<string, string>>(defaultComplexDrafts(profile.profile));
-  const [complexFieldErrors, setComplexFieldErrors] = useState<Record<string, string>>({});
   const [workspaceDraft, setWorkspaceDraft] = useState('');
   const [workspaceError, setWorkspaceError] = useState('');
   const [useWorkspaceConstraints, setUseWorkspaceConstraints] = useState(true);
-  const [showRawStream, setShowRawStream] = useState(false);
+  const [autoAcceptChanges, setAutoAcceptChanges] = useState(false);
 
   const lastExternalCommandId = useRef<number | null>(null);
 
@@ -162,8 +156,14 @@ export function ProfileRefinePanel({
     () => resolveProfileNameFieldKey(fieldDraft, { schema }),
     [fieldDraft, schema]
   );
-  const fieldOptions = useMemo(() => {
-    const schemaOptions = schema ? flattenFieldOptions(schema.fields).filter((field) => !field.path.includes('.')) : [];
+  const fieldOptions = useMemo<TopLevelFieldOption[]>(() => {
+    const schemaOptions = schema
+      ? schema.fields.map((field) => ({
+        path: field.key,
+        label: field.label,
+        schemaField: field,
+      }))
+      : [];
     const existingKeys = new Set(schemaOptions.map((field) => field.path));
     const fallback = Object.keys(fieldDraft)
       .filter((key) => !existingKeys.has(key))
@@ -194,7 +194,6 @@ export function ProfileRefinePanel({
     setCommand('');
     setSelectedFields([]);
     setLockedFields([]);
-    setStream('');
     setPipelineStage(0);
     setPipelineStarted(false);
     setCandidateProfile(null);
@@ -202,9 +201,6 @@ export function ProfileRefinePanel({
     setSelectedDiffPaths([]);
     setCandidateConfidence(null);
     setFieldDraft(cloneJson(profile.profile));
-    setComplexFieldDrafts(defaultComplexDrafts(profile.profile));
-    setComplexFieldErrors({});
-    setShowRawStream(false);
     setWorkspaceDraft(JSON.stringify(profile.profile, null, 2));
     setWorkspaceError('');
     setTransformSuggestions(DEFAULT_TRANSFORMS);
@@ -246,21 +242,6 @@ export function ProfileRefinePanel({
     });
   }, []);
 
-  const handleComplexFieldChange = useCallback((key: string, raw: string) => {
-    setComplexFieldDrafts((prev) => ({ ...prev, [key]: raw }));
-    try {
-      const parsed = JSON.parse(raw) as unknown;
-      setComplexFieldErrors((prev) => {
-        const next = { ...prev };
-        delete next[key];
-        return next;
-      });
-      updateFieldDraftValue(key, parsed);
-    } catch {
-      setComplexFieldErrors((prev) => ({ ...prev, [key]: 'Invalid JSON for this field.' }));
-    }
-  }, [updateFieldDraftValue]);
-
   const loadTransformSuggestions = useCallback(async () => {
     if (!schema) return;
     if (!hasApiKey()) return;
@@ -282,13 +263,9 @@ export function ProfileRefinePanel({
 
   const parseWorkspaceConstraints = useCallback((): Record<string, unknown> | undefined => {
     if (!useWorkspaceConstraints) return undefined;
-    if (Object.keys(complexFieldErrors).length > 0) {
-      setWorkspaceError('Fix invalid JSON fields before regenerating.');
-      return undefined;
-    }
     setWorkspaceError('');
     return cloneJson(fieldDraft);
-  }, [useWorkspaceConstraints, complexFieldErrors, fieldDraft]);
+  }, [useWorkspaceConstraints, fieldDraft]);
 
   const handleRun = useCallback(async (instruction: string) => {
     if (!schema) {
@@ -315,7 +292,6 @@ export function ProfileRefinePanel({
     setIsRefining(true);
     setPipelineStarted(true);
     setPipelineStage(0);
-    setStream('');
     setCandidateProfile(null);
     setCandidateDiffPaths([]);
     setSelectedDiffPaths([]);
@@ -333,18 +309,50 @@ export function ProfileRefinePanel({
         lockedFields,
         constraints,
         (token) => {
+          void token;
           setPipelineStage(2);
-          setStream((prev) => prev + token);
         }
       );
 
       setPipelineStage(3);
       const changed = diffPaths(currentSnapshot, result.profile).filter((path) => path !== '$');
+      const confidence = evaluateConfidence(schema, result.profile, schema.generationOrder?.length ?? 1);
+      setCommand(instruction.trim());
+
+      if (autoAcceptChanges) {
+        if (changed.length === 0) {
+          toast('No changes detected', 'Nothing to auto-accept from this run.');
+          return;
+        }
+
+        const merged = mergeRevision(
+          profile,
+          'refine',
+          instruction.trim(),
+          result.profile,
+          {
+            selectedFields,
+            lockedFields,
+            confidence,
+            parentRevisionId: profile.activeRevisionId,
+          }
+        );
+        await updateProfile(merged);
+        onProfileUpdated?.(merged);
+        setFieldDraft(cloneJson(result.profile));
+        setWorkspaceDraft(JSON.stringify(result.profile, null, 2));
+        setCandidateProfile(null);
+        setCandidateDiffPaths([]);
+        setSelectedDiffPaths([]);
+        setCandidateConfidence(null);
+        toast('Changes auto-accepted', `Applied ${changed.length} diff item${changed.length > 1 ? 's' : ''}.`, 'success');
+        return;
+      }
+
       setCandidateProfile(result.profile);
       setCandidateDiffPaths(changed);
       setSelectedDiffPaths(changed);
-      setCandidateConfidence(evaluateConfidence(schema, result.profile, schema.generationOrder?.length ?? 1));
-      setCommand(instruction.trim());
+      setCandidateConfidence(confidence);
       toast('Review changes', changed.length > 0 ? 'Accept or reject generated diff.' : 'No changes detected.');
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Refinement failed.';
@@ -361,6 +369,9 @@ export function ProfileRefinePanel({
     selectedFields,
     lockedFields,
     useWorkspaceConstraints,
+    autoAcceptChanges,
+    updateProfile,
+    onProfileUpdated,
     parseWorkspaceConstraints,
   ]);
 
@@ -391,14 +402,11 @@ export function ProfileRefinePanel({
     await updateProfile(merged);
     onProfileUpdated?.(merged);
     setFieldDraft(cloneJson(nextSnapshot));
-    setComplexFieldDrafts(defaultComplexDrafts(nextSnapshot));
-    setComplexFieldErrors({});
     setWorkspaceDraft(JSON.stringify(nextSnapshot, null, 2));
     setCandidateProfile(null);
     setCandidateDiffPaths([]);
     setSelectedDiffPaths([]);
     setCandidateConfidence(null);
-    setStream('');
   }, [profile, updateProfile, onProfileUpdated]);
 
   const handleAcceptAll = async () => {
@@ -442,7 +450,6 @@ export function ProfileRefinePanel({
     setCandidateDiffPaths([]);
     setSelectedDiffPaths([]);
     setCandidateConfidence(null);
-    setStream('');
     toast('Changes rejected', 'Generated diff was discarded.', 'default');
   };
 
@@ -473,10 +480,6 @@ export function ProfileRefinePanel({
 
   const handleSaveInlineEdits = async () => {
     if (!schema) return;
-    if (Object.keys(complexFieldErrors).length > 0) {
-      toast('Invalid field JSON', 'Fix invalid JSON field values before saving.', 'error');
-      return;
-    }
     const snapshot = cloneJson(fieldDraft);
     const confidence = evaluateConfidence(schema, snapshot, schema.generationOrder?.length ?? 1);
     await applyUpdatedProfile(
@@ -544,6 +547,10 @@ export function ProfileRefinePanel({
   ];
 
   const isBlocked = disabled || isRefining;
+  const openChatWithCurrentProfile = () => {
+    setActiveProfile(profile.id);
+    setActiveView('chat');
+  };
 
   if (!schema) {
     return (
@@ -559,253 +566,6 @@ export function ProfileRefinePanel({
 
   return (
     <div className="space-y-4 animate-in fade-in duration-200">
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <WandSparkles className="h-4 w-4" />
-            Character
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-5">
-          <div className="flex flex-wrap gap-1.5 text-[11px]">
-            <Badge variant="secondary">Schema: {schema.name}</Badge>
-            <Badge variant="outline">Profile: {resolveProfileDisplayName(fieldDraft, { schema, fallback: profile.id.slice(0, 8) })}</Badge>
-            <Badge variant="outline">
-              Target: {selectedFields.length > 0 ? `${selectedFields.length}` : 'all'}
-            </Badge>
-            <Badge variant="outline">
-              Locks: {lockedFields.length}
-            </Badge>
-          </div>
-          {activeConfidence && <ConfidenceStrip confidence={activeConfidence} />}
-
-          <div className="space-y-3">
-            <div className="text-xs font-medium text-muted-foreground">Fields</div>
-            <div className="space-y-3">
-              {fieldOptions.map((field) => {
-                const value = fieldDraft[field.path];
-                const selected = selectedFields.includes(field.path);
-                const locked = lockedFields.includes(field.path);
-                const complexValue = complexFieldDrafts[field.path] ?? JSON.stringify(value ?? {}, null, 2);
-                const complexError = complexFieldErrors[field.path];
-
-                return (
-                  <div key={field.path} className="rounded-md border border-border p-3 space-y-2">
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <div>
-                        <p className="text-sm font-medium">{field.label}</p>
-                        <p className="text-[11px] text-muted-foreground">{field.path}</p>
-                      </div>
-                      <div className="flex items-center gap-1.5 text-[11px]">
-                        <button
-                          onClick={() => toggleSelection(field.path)}
-                          disabled={isBlocked}
-                          className={`px-2 py-0.5 rounded-full border transition-colors cursor-pointer disabled:opacity-50 ${
-                            selected
-                              ? 'border-primary bg-primary/15 text-foreground'
-                              : 'border-border text-muted-foreground hover:border-primary/50 hover:text-foreground'
-                          }`}
-                          title={selected ? 'Remove from regenerate target' : 'Target this field for regenerate'}
-                        >
-                          {selected ? 'Targeted' : 'Target'}
-                        </button>
-                        <button
-                          onClick={() => toggleLock(field.path)}
-                          disabled={isBlocked}
-                          className={`px-2 py-0.5 rounded-full border transition-colors cursor-pointer disabled:opacity-50 ${
-                            locked
-                              ? 'border-amber-500/70 bg-amber-500/15 text-amber-100'
-                              : 'border-border text-muted-foreground hover:border-amber-400/50 hover:text-foreground'
-                          }`}
-                          title={locked ? 'Unlock field' : 'Lock field from regeneration'}
-                        >
-                          {locked ? 'Locked' : 'Lock'}
-                        </button>
-                      </div>
-                    </div>
-
-                    {typeof value === 'string' && (
-                      value.length > 140 ? (
-                        <Textarea
-                          value={value}
-                          onChange={(event) => updateFieldDraftValue(field.path, event.target.value)}
-                          className="min-h-[92px] text-sm"
-                          disabled={isBlocked}
-                        />
-                      ) : (
-                        <Input
-                          value={value}
-                          onChange={(event) => updateFieldDraftValue(field.path, event.target.value)}
-                          className="h-9 text-sm"
-                          disabled={isBlocked}
-                        />
-                      )
-                    )}
-
-                    {typeof value === 'number' && (
-                      <Input
-                        type="number"
-                        value={Number.isFinite(value) ? String(value) : ''}
-                        onChange={(event) => {
-                          const next = Number(event.target.value);
-                          updateFieldDraftValue(field.path, Number.isNaN(next) ? 0 : next);
-                        }}
-                        className="h-9 text-sm font-mono"
-                        disabled={isBlocked}
-                      />
-                    )}
-
-                    {typeof value === 'boolean' && (
-                      <label className="inline-flex items-center gap-2 text-sm">
-                        <input
-                          type="checkbox"
-                          checked={value}
-                          onChange={(event) => updateFieldDraftValue(field.path, event.target.checked)}
-                          className="h-4 w-4 accent-primary"
-                          disabled={isBlocked}
-                        />
-                        {value ? 'True' : 'False'}
-                      </label>
-                    )}
-
-                    {(value === null || value === undefined) && (
-                      <Input
-                        value=""
-                        placeholder="Empty"
-                        onChange={(event) => updateFieldDraftValue(field.path, event.target.value)}
-                        className="h-9 text-sm"
-                        disabled={isBlocked}
-                      />
-                    )}
-
-                    {typeof value === 'object' && value !== null ? (
-                      <div className="space-y-1">
-                        <Textarea
-                          value={complexValue}
-                          onChange={(event) => handleComplexFieldChange(field.path, event.target.value)}
-                          className="min-h-[120px] text-xs font-mono"
-                          disabled={isBlocked}
-                        />
-                        {complexError && (
-                          <div className="text-[11px] text-amber-300">{complexError}</div>
-                        )}
-                      </div>
-                    ) : null}
-                  </div>
-                );
-              })}
-            </div>
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <label className="flex items-center gap-2 text-xs text-muted-foreground">
-                <input
-                  type="checkbox"
-                  checked={useWorkspaceConstraints}
-                  onChange={(event) => setUseWorkspaceConstraints(event.target.checked)}
-                  className="h-3.5 w-3.5 accent-primary"
-                />
-                Use current visible field edits as constraints for regenerate
-              </label>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => void handleSaveInlineEdits()}
-                disabled={isBlocked || Object.keys(complexFieldErrors).length > 0}
-              >
-                Save Inline Edits
-              </Button>
-            </div>
-          </div>
-
-          {command && (
-            <div className="rounded-md border border-border bg-muted/20 p-2.5 text-xs text-muted-foreground">
-              {`Last command: ${truncate(command, 160)}`}
-            </div>
-          )}
-
-          <div className="space-y-2">
-            <div className="flex items-center justify-between">
-              <label className="text-xs font-medium text-muted-foreground">One-click transforms</label>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => void loadTransformSuggestions()}
-                disabled={isBlocked || isSuggesting}
-                className="h-7 text-[11px]"
-              >
-                {isSuggesting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
-                Refresh
-              </Button>
-            </div>
-            <div className="flex flex-wrap gap-1.5">
-                {transformSuggestions.map((transform) => (
-                  <button
-                    key={transform}
-                    onClick={() => {
-                      setCommand(transform);
-                      void handleRun(transform);
-                    }}
-                    disabled={isBlocked}
-                    className="px-2.5 py-1 rounded-full border border-border bg-muted/30 text-xs hover:border-primary/50 hover:text-foreground transition-colors cursor-pointer disabled:opacity-50"
-                    title={transform}
-                >
-                  {truncate(transform, 46)}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <div className="text-[11px] text-muted-foreground">
-            Select target/lock chips on fields, then run a command from the bottom bar.
-          </div>
-        </CardContent>
-      </Card>
-
-      {(pipelineStarted || stream) && (
-        <Card>
-          <CardContent className="pt-4 space-y-3">
-            <div className="flex items-center justify-between gap-2">
-              <div className="text-xs text-muted-foreground">
-                {isRefining
-                  ? `Running: ${pipeline[pipelineStage] ?? 'Processing'}`
-                  : 'Latest AI run complete'}
-              </div>
-              <button
-                onClick={() => setShowRawStream((prev) => !prev)}
-                className="text-xs text-muted-foreground hover:text-foreground cursor-pointer inline-flex items-center gap-1"
-              >
-                <ChevronDown className={`h-3.5 w-3.5 transition-transform ${showRawStream ? 'rotate-180' : ''}`} />
-                Raw stream
-              </button>
-            </div>
-            <div className="grid grid-cols-4 gap-2">
-              {pipeline.map((stage, index) => {
-                const done = pipelineStarted && index < pipelineStage;
-                const active = pipelineStarted && index === pipelineStage && isRefining;
-                return (
-                  <div
-                    key={stage}
-                    className={`rounded-md border px-2 py-2 text-[11px] transition-colors ${
-                      done
-                        ? 'border-primary/50 bg-primary/10 text-foreground'
-                        : active
-                          ? 'border-primary/80 bg-primary/20 text-foreground animate-pulse'
-                          : 'border-border bg-muted/30 text-muted-foreground'
-                    }`}
-                  >
-                    {stage}
-                  </div>
-                );
-              })}
-            </div>
-            {showRawStream && stream && (
-              <pre className="text-xs font-mono whitespace-pre-wrap text-muted-foreground rounded-md border border-border p-3">
-                {stream}
-              </pre>
-            )}
-          </CardContent>
-        </Card>
-      )}
-
       {candidateProfile && (
         <Card>
           <CardHeader>
@@ -858,6 +618,201 @@ export function ProfileRefinePanel({
               <Button variant="ghost" onClick={handleRejectCandidate} disabled={isRefining}>
                 Reject
               </Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between gap-2">
+            <CardTitle className="flex items-center gap-2">
+              <WandSparkles className="h-4 w-4" />
+              Character
+            </CardTitle>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={openChatWithCurrentProfile}
+              className="h-8"
+            >
+              <MessagesSquare className="h-3.5 w-3.5" />
+              Chat
+            </Button>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-5">
+          <div className="space-y-3">
+            <div className="text-xs font-medium text-muted-foreground">Fields</div>
+            <div className="space-y-3">
+              {fieldOptions.map((field) => {
+                const value = fieldDraft[field.path];
+                const selected = selectedFields.includes(field.path);
+                const locked = lockedFields.includes(field.path);
+                const schemaField = field.schemaField;
+
+                return (
+                  <div key={field.path} className="rounded-md border border-border p-3 space-y-2">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div>
+                        <p className="text-sm font-medium">{field.label}</p>
+                        <p className="text-[11px] text-muted-foreground">{field.path}</p>
+                      </div>
+                      <div className="flex items-center gap-1.5 text-[11px]">
+                        <button
+                          onClick={() => toggleSelection(field.path)}
+                          disabled={isBlocked}
+                          className={`px-2 py-0.5 rounded-full border transition-colors cursor-pointer disabled:opacity-50 ${
+                            selected
+                              ? 'border-primary bg-primary/15 text-foreground'
+                              : 'border-border text-muted-foreground hover:border-primary/50 hover:text-foreground'
+                          }`}
+                          title={selected ? 'Remove from regenerate target' : 'Target this field for regenerate'}
+                        >
+                          {selected ? 'Targeted' : 'Target'}
+                        </button>
+                        <button
+                          onClick={() => toggleLock(field.path)}
+                          disabled={isBlocked}
+                          className={`px-2 py-0.5 rounded-full border transition-colors cursor-pointer disabled:opacity-50 ${
+                            locked
+                              ? 'border-amber-500/70 bg-amber-500/15 text-amber-100'
+                              : 'border-border text-muted-foreground hover:border-amber-400/50 hover:text-foreground'
+                          }`}
+                          title={locked ? 'Unlock field' : 'Lock field from regeneration'}
+                        >
+                          {locked ? 'Locked' : 'Lock'}
+                        </button>
+                      </div>
+                    </div>
+
+                    <ProfileStructuredFieldInput
+                      field={schemaField}
+                      value={value}
+                      disabled={isBlocked}
+                      onChange={(nextValue) => updateFieldDraftValue(field.path, nextValue)}
+                    />
+                  </div>
+                );
+              })}
+            </div>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="flex flex-wrap items-center gap-4">
+                <label className="flex items-center gap-2 text-xs text-muted-foreground">
+                  <input
+                    type="checkbox"
+                    checked={useWorkspaceConstraints}
+                    onChange={(event) => setUseWorkspaceConstraints(event.target.checked)}
+                    className="h-3.5 w-3.5 accent-primary"
+                  />
+                  Use current visible field edits as constraints for regenerate
+                </label>
+                <label className="flex items-center gap-2 text-xs text-muted-foreground">
+                  <input
+                    type="checkbox"
+                    checked={autoAcceptChanges}
+                    onChange={(event) => setAutoAcceptChanges(event.target.checked)}
+                    className="h-3.5 w-3.5 accent-primary"
+                  />
+                  Auto-accept changes
+                </label>
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => void handleSaveInlineEdits()}
+                disabled={isBlocked}
+              >
+                Save Inline Edits
+              </Button>
+            </div>
+          </div>
+
+          {command && (
+            <div className="rounded-md border border-border bg-muted/20 p-2.5 text-xs text-muted-foreground">
+              {`Last command: ${truncate(command, 160)}`}
+            </div>
+          )}
+
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <label className="text-xs font-medium text-muted-foreground">One-click transforms</label>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => void loadTransformSuggestions()}
+                disabled={isBlocked || isSuggesting}
+                className="h-7 text-[11px]"
+              >
+                {isSuggesting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
+                Refresh
+              </Button>
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+                {transformSuggestions.map((transform) => (
+                  <button
+                    key={transform}
+                    onClick={() => {
+                      setCommand(transform);
+                      void handleRun(transform);
+                    }}
+                    disabled={isBlocked}
+                    className="px-2.5 py-1 rounded-full border border-border bg-muted/30 text-xs hover:border-primary/50 hover:text-foreground transition-colors cursor-pointer disabled:opacity-50"
+                    title={transform}
+                >
+                  {truncate(transform, 46)}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="text-[11px] text-muted-foreground">
+            Select target/lock chips on fields, then run a command from the bottom bar.
+          </div>
+
+          <div className="space-y-2 border-t border-border/70 pt-3">
+            <div className="flex flex-wrap gap-1.5 text-[11px]">
+              <Badge variant="secondary">Schema: {schema.name}</Badge>
+              <Badge variant="outline">Profile: {resolveProfileDisplayName(fieldDraft, { schema, fallback: profile.id.slice(0, 8) })}</Badge>
+              <Badge variant="outline">
+                Target: {selectedFields.length > 0 ? `${selectedFields.length}` : 'all'}
+              </Badge>
+              <Badge variant="outline">
+                Locks: {lockedFields.length}
+              </Badge>
+            </div>
+            {activeConfidence && <ConfidenceStrip confidence={activeConfidence} />}
+          </div>
+        </CardContent>
+      </Card>
+
+      {pipelineStarted && (
+        <Card>
+          <CardContent className="pt-4 space-y-3">
+            <div className="text-xs text-muted-foreground">
+              {isRefining
+                ? `Running: ${pipeline[pipelineStage] ?? 'Processing'}`
+                : 'Latest AI run complete'}
+            </div>
+            <div className="grid grid-cols-4 gap-2">
+              {pipeline.map((stage, index) => {
+                const done = pipelineStarted && index < pipelineStage;
+                const active = pipelineStarted && index === pipelineStage && isRefining;
+                return (
+                  <div
+                    key={stage}
+                    className={`rounded-md border px-2 py-2 text-[11px] transition-colors ${
+                      done
+                        ? 'border-primary/50 bg-primary/10 text-foreground'
+                        : active
+                          ? 'border-primary/80 bg-primary/20 text-foreground animate-pulse'
+                          : 'border-border bg-muted/30 text-muted-foreground'
+                    }`}
+                  >
+                    {stage}
+                  </div>
+                );
+              })}
             </div>
           </CardContent>
         </Card>

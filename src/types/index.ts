@@ -173,7 +173,7 @@ export interface AppSettings {
 // UI State
 // ============================================================
 
-export type AppView = 'generate' | 'schemas' | 'history' | 'settings';
+export type AppView = 'generate' | 'chat' | 'schemas' | 'history' | 'settings';
 
 export interface Toast {
   id: string;

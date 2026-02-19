@@ -114,7 +114,6 @@ export function SchemaEditor() {
   const [aiDialogOpen, setAiDialogOpen] = useState(false);
   const [aiGoal, setAiGoal] = useState('');
   const [aiGenerating, setAiGenerating] = useState(false);
-  const [aiStream, setAiStream] = useState('');
   const [aiDraft, setAiDraft] = useState<SchemaDraft | null>(null);
   const [aiCandidateDraft, setAiCandidateDraft] = useState<SchemaDraft | null>(null);
   const [aiTargetPresetId, setAiTargetPresetId] = useState<string | null>(null);
@@ -141,7 +140,6 @@ export function SchemaEditor() {
   const [inlineSelectedFields, setInlineSelectedFields] = useState<string[]>([]);
   const [inlineLockedFields, setInlineLockedFields] = useState<string[]>([]);
   const [inlineGenerating, setInlineGenerating] = useState(false);
-  const [inlineStream, setInlineStream] = useState('');
   const [inlineCandidateDraft, setInlineCandidateDraft] = useState<SchemaDraft | null>(null);
   const [inlineChangedFields, setInlineChangedFields] = useState<string[]>([]);
   const [inlineSelectedDiffFields, setInlineSelectedDiffFields] = useState<string[]>([]);
@@ -308,7 +306,6 @@ export function SchemaEditor() {
   const resetAiFlow = useCallback(() => {
     setAiGoal('');
     setAiGenerating(false);
-    setAiStream('');
     setAiDraft(null);
     setAiCandidateDraft(null);
     setAiTargetPresetId(null);
@@ -410,7 +407,6 @@ export function SchemaEditor() {
     setAiGenerating(true);
     setAiPipelineStarted(true);
     setAiPipelineStage(0);
-    setAiStream('');
     clearAiCandidate();
 
     try {
@@ -419,11 +415,11 @@ export function SchemaEditor() {
         apiKey: getApiKey(),
         goal: aiGoal.trim(),
         onToken: (token) => {
+          void token;
           if (!streamed) {
             streamed = true;
             setAiPipelineStage(1);
           }
-          setAiStream((prev) => prev + token);
         },
       });
       setAiPipelineStage(2);
@@ -466,7 +462,6 @@ export function SchemaEditor() {
     setAiGenerating(true);
     setAiPipelineStarted(true);
     setAiPipelineStage(0);
-    setAiStream('');
     clearAiCandidate();
     try {
       let streamed = false;
@@ -477,11 +472,11 @@ export function SchemaEditor() {
         selectedFieldKeys: aiSelectedFields,
         lockedFieldKeys: aiLockedFields,
         onToken: (token) => {
+          void token;
           if (!streamed) {
             streamed = true;
             setAiPipelineStage(2);
           }
-          setAiStream((prev) => prev + token);
         },
       });
       setAiPipelineStage(3);
@@ -524,7 +519,6 @@ export function SchemaEditor() {
 
   const handleAiRejectCandidate = useCallback(() => {
     clearAiCandidate();
-    setAiStream('');
     toast('Changes rejected', 'Generated diff was discarded.', 'default');
   }, [clearAiCandidate]);
 
@@ -651,7 +645,6 @@ export function SchemaEditor() {
     setInlinePrompt('');
     setInlineSelectedFields([]);
     setInlineLockedFields([]);
-    setInlineStream('');
     clearInlineCandidate();
     setInlineTransforms(DEFAULT_SCHEMA_TRANSFORMS);
   }, [activePreset?.id, clearInlineCandidate]);
@@ -670,7 +663,6 @@ export function SchemaEditor() {
 
     const baseDraft = toSchemaDraft(activePreset);
     setInlineGenerating(true);
-    setInlineStream('');
     clearInlineCandidate();
 
     try {
@@ -680,7 +672,7 @@ export function SchemaEditor() {
         instruction,
         selectedFieldKeys: inlineSelectedFields,
         lockedFieldKeys: inlineLockedFields,
-        onToken: (token) => setInlineStream((prev) => prev + token),
+        onToken: () => {},
       });
       const changed = changedFieldKeys(baseDraft, updated);
       setInlineCandidateDraft(updated);
@@ -741,7 +733,6 @@ export function SchemaEditor() {
 
   const handleInlineReject = () => {
     clearInlineCandidate();
-    setInlineStream('');
     toast('Schema diff rejected', 'Discarded generated schema changes.', 'default');
   };
 
@@ -757,14 +748,13 @@ export function SchemaEditor() {
     }
 
     setInlineGenerating(true);
-    setInlineStream('');
     clearInlineCandidate();
 
     try {
       const draft = await generateSchemaDraft({
         apiKey: getApiKey(),
         goal: trimmed,
-        onToken: (token) => setInlineStream((prev) => prev + token),
+        onToken: () => {},
       });
       const base = await createPreset(draft.name, draft.description);
       const generatedPreset: SchemaPreset = {
@@ -1047,12 +1037,6 @@ export function SchemaEditor() {
                     ))}
                   </div>
                 </div>
-
-                {inlineStream && (
-                  <pre className="text-xs font-mono whitespace-pre-wrap text-muted-foreground rounded-md border border-border p-3">
-                    {inlineStream}
-                  </pre>
-                )}
 
                 {inlineCandidateDraft && (
                   <div className="space-y-3 rounded-md border border-border p-3">
@@ -1441,7 +1425,7 @@ export function SchemaEditor() {
               </>
             )}
 
-            {(aiPipelineStarted || aiStream) && (
+            {aiPipelineStarted && (
               <Card>
                 <CardHeader>
                   <CardTitle className="text-sm">Execution Pipeline</CardTitle>
@@ -1467,11 +1451,6 @@ export function SchemaEditor() {
                       );
                     })}
                   </div>
-                  {aiStream && (
-                    <pre className="text-xs font-mono whitespace-pre-wrap text-muted-foreground rounded-md border border-border p-3">
-                      {aiStream}
-                    </pre>
-                  )}
                 </CardContent>
               </Card>
             )}

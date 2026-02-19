@@ -1,6 +1,6 @@
 import { cn } from '@/lib/utils';
 import type { AppView } from '@/types';
-import { Sparkles, Layers, Clock, Settings } from 'lucide-react';
+import { Sparkles, Layers, Clock, Settings, MessagesSquare } from 'lucide-react';
 
 interface SidebarProps {
   activeView: AppView;
@@ -9,6 +9,7 @@ interface SidebarProps {
 
 const navItems: { view: AppView; label: string; icon: typeof Sparkles }[] = [
   { view: 'generate', label: 'Create', icon: Sparkles },
+  { view: 'chat', label: 'Chat', icon: MessagesSquare },
   { view: 'schemas', label: 'Schemas', icon: Layers },
   { view: 'history', label: 'Profiles', icon: Clock },
   { view: 'settings', label: 'Settings', icon: Settings },

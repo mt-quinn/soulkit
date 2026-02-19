@@ -23,13 +23,10 @@ export function GeneratorPanel() {
   const { hasApiKey, getApiKey } = useSettingsStore();
   const {
     isGenerating,
-    streamContent,
     currentPass,
     totalPasses,
     currentPassKeys,
     setGenerating,
-    setStreamContent,
-    appendStreamContent,
     setPassInfo,
     addProfile,
   } = useProfileStore();
@@ -62,7 +59,6 @@ export function GeneratorPanel() {
 
     const apiKey = getApiKey();
     setGenerating(true);
-    setStreamContent('');
     setLastProfile(null);
 
     try {
@@ -70,13 +66,8 @@ export function GeneratorPanel() {
         generateProfile(apiKey, selectedSchema, userInput.trim(), {
           onPassStart: (passIndex, passTotal, fieldKeys) => {
             setPassInfo(passIndex, passTotal, fieldKeys);
-            if (passIndex > 0) {
-              appendStreamContent(`\n\n--- Pass ${passIndex + 1}/${passTotal} ---\n\n`);
-            }
           },
-          onToken: (token) => {
-            appendStreamContent(token);
-          },
+          onToken: () => {},
           onPassComplete: () => {
             // no-op
           },
@@ -127,7 +118,7 @@ export function GeneratorPanel() {
       setGenerating(false);
       setPassInfo(0, 1, []);
     }
-  }, [selectedSchema, providerHasKey, userInput, getApiKey, setGenerating, setStreamContent, setPassInfo, appendStreamContent, addProfile]);
+  }, [selectedSchema, providerHasKey, userInput, getApiKey, setGenerating, setPassInfo, addProfile]);
 
   return (
     <div className="h-full overflow-hidden">
@@ -273,13 +264,17 @@ export function GeneratorPanel() {
               )}
             </CardHeader>
             <CardContent>
-              {streamContent ? (
-                <pre className="text-xs font-mono whitespace-pre-wrap text-muted-foreground max-h-80 overflow-y-auto">
-                  {streamContent}
-                </pre>
+              {isGenerating ? (
+                <p className="text-sm text-muted-foreground">
+                  Streaming raw tokens in the Console popup.
+                </p>
+              ) : lastProfile ? (
+                <p className="text-sm text-muted-foreground">
+                  Latest profile generated successfully.
+                </p>
               ) : (
                 <p className="text-sm text-muted-foreground">
-                  Submit a character brief to see live output here.
+                  Submit a character brief to generate a profile.
                 </p>
               )}
             </CardContent>

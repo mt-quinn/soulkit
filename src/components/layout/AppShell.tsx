@@ -3,6 +3,7 @@ import { Sidebar } from './Sidebar';
 import type { AppView } from '@/types';
 import { Toaster } from '@/components/ui/Toaster';
 import { UniversalCommandBar } from './UniversalCommandBar';
+import { ConsolePopup } from './ConsolePopup';
 import { useLlmBarStore } from '@/stores/llmBarStore';
 import { useNavigationStore } from '@/stores/navigationStore';
 
@@ -27,7 +28,7 @@ export function AppShell({ children }: AppShellProps) {
       });
     } else {
       setConfig({
-        chips: [{ id: 'ctx', label: activeView === 'generate' ? 'Create' : activeView === 'history' ? 'Profiles' : 'Schemas' }],
+        chips: [{ id: 'ctx', label: activeView === 'generate' ? 'Create' : activeView === 'history' ? 'Profiles' : activeView === 'chat' ? 'Chat' : 'Schemas' }],
         placeholder: 'Type a command…',
         submitLabel: 'Run',
         disabled: true,
@@ -49,6 +50,7 @@ export function AppShell({ children }: AppShellProps) {
         <main className="h-full overflow-hidden pb-28">
           {children(activeView)}
         </main>
+        <ConsolePopup />
         <UniversalCommandBar />
       </div>
       <Toaster />
