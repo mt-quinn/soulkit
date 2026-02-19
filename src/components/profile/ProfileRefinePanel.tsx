@@ -21,7 +21,14 @@ import {
   getPathValue,
   setPathValue,
 } from '@/lib/workspace';
-import type { ConfidenceReport, GeneratedProfile, ProfileRevision, ProfileRevisionKind, SchemaField } from '@/types';
+import type {
+  ConfidenceReport,
+  GeneratedProfile,
+  ProfileRevision,
+  ProfileRevisionKind,
+  SchemaField,
+  SchemaPreset,
+} from '@/types';
 import {
   AlertCircle,
   CheckCircle2,
@@ -86,6 +93,46 @@ function mergeRevision(
   };
 }
 
+function mergeAutosaveSnapshot(
+  profile: GeneratedProfile,
+  snapshot: Record<string, unknown>,
+  confidence: ConfidenceReport
+): GeneratedProfile {
+  const revisions = profile.revisions ? [...profile.revisions] : [];
+  let activeRevisionId = profile.activeRevisionId;
+
+  if (revisions.length === 0) {
+    const id = generateId();
+    revisions.push({
+      id,
+      createdAt: new Date().toISOString(),
+      kind: 'edit',
+      prompt: 'Auto-save inline edits',
+      snapshot,
+      confidence,
+    });
+    activeRevisionId = id;
+  } else {
+    let targetIndex = activeRevisionId ? revisions.findIndex((revision) => revision.id === activeRevisionId) : -1;
+    if (targetIndex < 0) {
+      targetIndex = revisions.length - 1;
+      activeRevisionId = revisions[targetIndex].id;
+    }
+    revisions[targetIndex] = {
+      ...revisions[targetIndex],
+      snapshot,
+      confidence,
+    };
+  }
+
+  return {
+    ...profile,
+    profile: snapshot,
+    revisions,
+    activeRevisionId,
+  };
+}
+
 function renderValue(value: unknown): string {
   if (typeof value === 'string') return value;
   if (typeof value === 'number' || typeof value === 'boolean') return String(value);
@@ -141,6 +188,13 @@ interface TopLevelFieldOption {
   schemaField?: SchemaField;
 }
 
+interface PendingAutosave {
+  snapshot: Record<string, unknown>;
+  serialized: string;
+  profile: GeneratedProfile;
+  schema: SchemaPreset;
+}
+
 export function ProfileRefinePanel({
   profile,
   onProfileUpdated,
@@ -174,6 +228,12 @@ export function ProfileRefinePanel({
   const [autoAcceptChanges, setAutoAcceptChanges] = useState(false);
 
   const lastExternalCommandId = useRef<number | null>(null);
+  const loadedProfileIdRef = useRef<string | null>(null);
+  const profileRef = useRef(profile);
+  const lastPersistedSnapshotRef = useRef(JSON.stringify(profile.profile));
+  const autosaveTimerRef = useRef<number | null>(null);
+  const autosaveInFlightRef = useRef(false);
+  const autosavePendingRef = useRef<PendingAutosave | null>(null);
 
   const schema = useMemo(
     () => presets.find((preset) => preset.id === profile.schemaId) ?? null,
@@ -218,21 +278,8 @@ export function ProfileRefinePanel({
   }, [revisions, profile.activeRevisionId, schema, fieldDraft]);
 
   useEffect(() => {
-    setCommand('');
-    setSelectedFields([]);
-    setLockedFields([]);
-    setPipelineStage(0);
-    setPipelineStarted(false);
-    setCandidateProfile(null);
-    setCandidateDiffPaths([]);
-    setSelectedDiffPaths([]);
-    setCandidateConfidence(null);
-    setFieldDraft(cloneJson(profile.profile));
-    setWorkspaceDraft(JSON.stringify(profile.profile, null, 2));
-    setWorkspaceError('');
-    setUseWorkspaceConstraints(false);
-    setTransformSuggestions(DEFAULT_TRANSFORMS);
-  }, [profile.id, profile.profile]);
+    profileRef.current = profile;
+  }, [profile]);
 
   useEffect(() => {
     if (!nameFieldPath) return;
@@ -294,6 +341,100 @@ export function ProfileRefinePanel({
     setWorkspaceError('');
     return buildConstraintPatch(baseProfile, fieldDraft);
   }, [useWorkspaceConstraints, fieldDraft]);
+
+  const flushAutosave = useCallback(async () => {
+    if (autosaveInFlightRef.current) return;
+    const next = autosavePendingRef.current;
+    if (!next) return;
+
+    autosaveInFlightRef.current = true;
+    autosavePendingRef.current = null;
+    try {
+      const confidence = evaluateConfidence(next.schema, next.snapshot, next.schema.generationOrder?.length ?? 1);
+      const autosaved = mergeAutosaveSnapshot(next.profile, next.snapshot, confidence);
+      await updateProfile(autosaved);
+      onProfileUpdated?.(autosaved);
+      if (profileRef.current.id === autosaved.id) {
+        profileRef.current = autosaved;
+        lastPersistedSnapshotRef.current = next.serialized;
+      }
+    } catch {
+      // Silent failure: do not interrupt editing flow with repeated autosave toasts.
+    } finally {
+      autosaveInFlightRef.current = false;
+      if (autosavePendingRef.current) {
+        void flushAutosave();
+      }
+    }
+  }, [updateProfile, onProfileUpdated]);
+
+  useEffect(() => {
+    if (loadedProfileIdRef.current === profile.id) return;
+    loadedProfileIdRef.current = profile.id;
+
+    if (autosaveTimerRef.current) {
+      window.clearTimeout(autosaveTimerRef.current);
+      autosaveTimerRef.current = null;
+    }
+    if (autosavePendingRef.current) {
+      void flushAutosave();
+    }
+
+    setCommand('');
+    setSelectedFields([]);
+    setLockedFields([]);
+    setPipelineStage(0);
+    setPipelineStarted(false);
+    setCandidateProfile(null);
+    setCandidateDiffPaths([]);
+    setSelectedDiffPaths([]);
+    setCandidateConfidence(null);
+    setFieldDraft(cloneJson(profile.profile));
+    setWorkspaceDraft(JSON.stringify(profile.profile, null, 2));
+    setWorkspaceError('');
+    setUseWorkspaceConstraints(false);
+    setTransformSuggestions(DEFAULT_TRANSFORMS);
+    lastPersistedSnapshotRef.current = JSON.stringify(profile.profile);
+  }, [profile.id, profile.profile, flushAutosave]);
+
+  useEffect(() => {
+    if (!schema || disabled || isRefining) return;
+    const serialized = JSON.stringify(fieldDraft);
+    if (serialized === lastPersistedSnapshotRef.current) return;
+
+    if (autosaveTimerRef.current) {
+      window.clearTimeout(autosaveTimerRef.current);
+    }
+
+    autosaveTimerRef.current = window.setTimeout(() => {
+      autosavePendingRef.current = {
+        snapshot: cloneJson(fieldDraft),
+        serialized,
+        profile: profileRef.current,
+        schema,
+      };
+      void flushAutosave();
+    }, 250);
+
+    return () => {
+      if (autosaveTimerRef.current) {
+        window.clearTimeout(autosaveTimerRef.current);
+        autosaveTimerRef.current = null;
+      }
+    };
+  }, [fieldDraft, schema, disabled, isRefining, flushAutosave]);
+
+  useEffect(() => {
+    return () => {
+      if (autosaveTimerRef.current) {
+        window.clearTimeout(autosaveTimerRef.current);
+        autosaveTimerRef.current = null;
+      }
+      if (autosavePendingRef.current) {
+        void flushAutosave();
+      }
+    };
+  }, [flushAutosave]);
 
   const handleRun = useCallback(async (instruction: string) => {
     if (!schema) {
@@ -363,6 +504,8 @@ export function ProfileRefinePanel({
         );
         await updateProfile(merged);
         onProfileUpdated?.(merged);
+        profileRef.current = merged;
+        lastPersistedSnapshotRef.current = JSON.stringify(result.profile);
         setFieldDraft(cloneJson(result.profile));
         setWorkspaceDraft(JSON.stringify(result.profile, null, 2));
         setCandidateProfile(null);
@@ -430,6 +573,8 @@ export function ProfileRefinePanel({
     setCandidateDiffPaths([]);
     setSelectedDiffPaths([]);
     setCandidateConfidence(null);
+    profileRef.current = merged;
+    lastPersistedSnapshotRef.current = JSON.stringify(nextSnapshot);
   }, [profile, updateProfile, onProfileUpdated]);
 
   const handleAcceptAll = async () => {
@@ -501,22 +646,6 @@ export function ProfileRefinePanel({
     }
   };
 
-  const handleSaveInlineEdits = async () => {
-    if (!schema) return;
-    const snapshot = cloneJson(fieldDraft);
-    const confidence = evaluateConfidence(schema, snapshot, schema.generationOrder?.length ?? 1);
-    await applyUpdatedProfile(
-      snapshot,
-      'edit',
-      'Inline field edits',
-      {
-        confidence,
-        parentRevisionId: profile.activeRevisionId,
-      }
-    );
-    toast('Edits saved', 'Manual field edits are now the active profile.', 'success');
-  };
-
   const handleRevert = async (revision: ProfileRevision) => {
     if (!schema) return;
     const snapshot = cloneJson(revision.snapshot);
@@ -570,7 +699,25 @@ export function ProfileRefinePanel({
   ];
 
   const isBlocked = disabled || isRefining;
-  const openChatWithCurrentProfile = () => {
+  const openChatWithCurrentProfile = async () => {
+    if (autosaveTimerRef.current) {
+      window.clearTimeout(autosaveTimerRef.current);
+      autosaveTimerRef.current = null;
+    }
+    if (schema) {
+      const serialized = JSON.stringify(fieldDraft);
+      if (serialized !== lastPersistedSnapshotRef.current) {
+        autosavePendingRef.current = {
+          snapshot: cloneJson(fieldDraft),
+          serialized,
+          profile: profileRef.current,
+          schema,
+        };
+      }
+    }
+    if (autosavePendingRef.current) {
+      await flushAutosave();
+    }
     setActiveProfile(profile.id);
     setActiveView('chat');
   };
@@ -685,7 +832,7 @@ export function ProfileRefinePanel({
               <Button
                 variant="outline"
                 size="sm"
-                onClick={openChatWithCurrentProfile}
+                onClick={() => void openChatWithCurrentProfile()}
                 className="h-8"
               >
                 <MessagesSquare className="h-3.5 w-3.5" />
@@ -770,14 +917,7 @@ export function ProfileRefinePanel({
                   Auto-accept changes
                 </label>
               </div>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => void handleSaveInlineEdits()}
-                disabled={isBlocked}
-              >
-                Save Inline Edits
-              </Button>
+              <div className="text-xs text-muted-foreground">Inline field edits save automatically.</div>
             </div>
           </div>
 

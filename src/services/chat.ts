@@ -43,9 +43,48 @@ function limitWords(value: string, maxWords: number): string {
   return `${words.slice(0, maxWords).join(' ').trim()}...`;
 }
 
+function ensureTerminalPunctuation(value: string): string {
+  const trimmed = value.trim();
+  if (!trimmed) return '';
+  return /[.!?]$/.test(trimmed) ? trimmed : `${trimmed}.`;
+}
+
+function limitSceneWords(value: string, maxWords: number): string {
+  if (maxWords <= 0) return '';
+  const compact = normalizeWhitespace(value);
+  if (!compact) return '';
+
+  const sentences = compact
+    .split(/(?<=[.!?])\s+/)
+    .map((part) => normalizeWhitespace(part))
+    .filter(Boolean);
+
+  const source = sentences.length > 0 ? sentences : [compact];
+  const accepted: string[] = [];
+  let usedWords = 0;
+
+  for (const sentence of source) {
+    const words = sentence.split(/\s+/).filter(Boolean);
+    if (words.length === 0) continue;
+
+    if (usedWords + words.length <= maxWords) {
+      accepted.push(sentence);
+      usedWords += words.length;
+      continue;
+    }
+
+    if (accepted.length === 0) {
+      accepted.push(words.slice(0, maxWords).join(' '));
+    }
+    break;
+  }
+
+  return ensureTerminalPunctuation(normalizeWhitespace(accepted.join(' ')));
+}
+
 function sanitizeScene(value: string): string {
   const compact = normalizeWhitespace(value);
-  return limitWords(limitSentences(compact, 2), 36);
+  return limitSceneWords(limitSentences(compact, 2), 36);
 }
 
 function sanitizeReply(value: string): string {
@@ -95,7 +134,8 @@ Rules:
 - Output must be concise: 1-2 short sentences, max 36 words.
 - Keep it practical and clean, not cinematic.
 - No action set-pieces, no dramatic narration, no plot escalation.
-- Goal: give just enough context for a direct 1:1 conversation.`,
+- Goal: give just enough context for a direct 1:1 conversation.
+- Do not end with an ellipsis.`,
     userPrompt: `Create a concise conversation context for this character:
 
 Character profile:
