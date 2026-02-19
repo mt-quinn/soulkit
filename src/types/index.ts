@@ -2,7 +2,18 @@
 // Field Types & Schema
 // ============================================================
 
-export type FieldType = 'text' | 'number' | 'boolean' | 'enum' | 'array' | 'object' | 'scale' | 'trait-list' | 'references';
+export type FieldType =
+  | 'text'
+  | 'number'
+  | 'boolean'
+  | 'enum'
+  | 'array'
+  | 'object'
+  | 'scale'
+  | 'trait-list'
+  | 'references'
+  | 'ranked-likes'
+  | 'ranked-dislikes';
 
 export type GenerationHint = 'identity' | 'narrative' | 'behavioral' | 'calibration';
 
@@ -22,6 +33,10 @@ export interface SchemaField {
   traitConstraint?: string;
   /** For 'references' fields: how many references to generate */
   referenceCount?: number;
+  /** For ranked list fields: how many ranked items to generate */
+  rankedItemCount?: number;
+  /** For ranked list fields: descriptor/category to rank (e.g. "foods", "people", "date behaviors") */
+  rankedDescriptor?: string;
   /** For 'array' fields: type of items */
   arrayItemType?: FieldType;
   /** For 'object' and 'array' of objects: nested fields */
@@ -61,15 +76,39 @@ export interface GeneratedProfile {
   model: string;
   generatedAt: string;
   seeds: Record<string, unknown>;
+  prompt?: string;
   temperature: number;
   profile: Record<string, unknown>;
+  revisions?: ProfileRevision[];
+  activeRevisionId?: string;
+}
+
+export type ProfileRevisionKind = 'generate' | 'refine' | 'edit' | 'revert' | 'fork';
+
+export interface ConfidenceReport {
+  schemaValid: boolean;
+  fieldsComplete: boolean;
+  passes: number;
+  warnings: string[];
+}
+
+export interface ProfileRevision {
+  id: string;
+  createdAt: string;
+  kind: ProfileRevisionKind;
+  prompt: string;
+  selectedFields?: string[];
+  lockedFields?: string[];
+  snapshot: Record<string, unknown>;
+  parentRevisionId?: string;
+  confidence?: ConfidenceReport;
 }
 
 // ============================================================
 // LLM Provider
 // ============================================================
 
-export type LLMProvider = 'openai' | 'anthropic' | 'gemini';
+export type LLMProvider = 'openai';
 
 export interface ProviderConfig {
   id: LLMProvider;
@@ -86,10 +125,7 @@ export interface ModelOption {
 
 export interface GenerationRequest {
   schema: SchemaPreset;
-  seeds: Record<string, unknown>;
-  provider: LLMProvider;
-  model: string;
-  temperature: number;
+  userInput: string;
 }
 
 export interface GenerationResult {
@@ -124,11 +160,13 @@ export interface AppSettings {
   theme: 'light' | 'dark' | 'system';
   apiKeys: {
     openai: string;
-    anthropic: string;
-    gemini: string;
   };
-  defaultProvider: LLMProvider;
-  defaultTemperature: number;
+  ui: {
+    skipDeleteConfirmations: {
+      schemas: boolean;
+      profiles: boolean;
+    };
+  };
 }
 
 // ============================================================

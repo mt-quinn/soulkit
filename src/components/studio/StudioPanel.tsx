@@ -1,0 +1,302 @@
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useSchemaStore } from '@/stores/schemaStore';
+import { useSettingsStore } from '@/stores/settingsStore';
+import { useProfileStore } from '@/stores/profileStore';
+import { useLlmBarStore } from '@/stores/llmBarStore';
+import { useNavigationStore } from '@/stores/navigationStore';
+import { generateProfile } from '@/services/provider';
+import { FIXED_MODEL_NAME, FIXED_PROVIDER, FIXED_PROVIDER_NAME, FIXED_TEMPERATURE } from '@/services/types';
+import { isMultiPass } from '@/lib/promptBuilder';
+import { Select } from '@/components/ui/Select';
+import { Badge } from '@/components/ui/Badge';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
+import { toast } from '@/stores/toastStore';
+import { evaluateConfidence } from '@/lib/workspace';
+import { generateId } from '@/lib/utils';
+import type { GeneratedProfile } from '@/types';
+import { AlertCircle, ChevronDown } from 'lucide-react';
+
+export function StudioPanel() {
+  const { presets } = useSchemaStore();
+  const { hasApiKey, getApiKey } = useSettingsStore();
+  const { setConfig, resetConfig } = useLlmBarStore();
+  const { setActiveView } = useNavigationStore();
+  const {
+    isGenerating,
+    streamContent,
+    currentPass,
+    totalPasses,
+    currentPassKeys,
+    setGenerating,
+    setStreamContent,
+    appendStreamContent,
+    setPassInfo,
+    addProfile,
+    setActiveProfile,
+  } = useProfileStore();
+
+  const [selectedSchemaId, setSelectedSchemaId] = useState('');
+  const [showStream, setShowStream] = useState(true);
+
+  const selectedSchema = useMemo(
+    () => presets.find((preset) => preset.id === selectedSchemaId) ?? null,
+    [presets, selectedSchemaId]
+  );
+  const providerHasKey = hasApiKey();
+  const multiPass = selectedSchema ? isMultiPass(selectedSchema) : false;
+
+  useEffect(() => {
+    if (presets.length === 0) {
+      if (selectedSchemaId) setSelectedSchemaId('');
+      return;
+    }
+    if (!selectedSchemaId || !presets.some((preset) => preset.id === selectedSchemaId)) {
+      setSelectedSchemaId(presets[0].id);
+    }
+  }, [presets, selectedSchemaId]);
+
+  const handleGenerate = useCallback(async (prompt: string) => {
+    const trimmedPrompt = prompt.trim();
+
+    if (!selectedSchema) {
+      toast('No schema selected', 'Choose a schema before generating.', 'error');
+      return;
+    }
+    if (!providerHasKey) {
+      toast('No API key', 'Add your OpenAI API key in Settings.', 'error');
+      return;
+    }
+    if (!trimmedPrompt) {
+      toast('No brief provided', 'Describe the character in plain text.', 'error');
+      return;
+    }
+
+    const apiKey = getApiKey();
+    setGenerating(true);
+    setStreamContent('');
+    setShowStream(true);
+
+    try {
+      await new Promise<void>((resolve, reject) => {
+        generateProfile(apiKey, selectedSchema, trimmedPrompt, {
+          onPassStart: (passIndex, passTotal, fieldKeys) => {
+            setPassInfo(passIndex, passTotal, fieldKeys);
+            if (passIndex > 0) {
+              appendStreamContent(`\n\n--- Pass ${passIndex + 1}/${passTotal} ---\n\n`);
+            }
+          },
+          onToken: (token) => {
+            appendStreamContent(token);
+          },
+          onPassComplete: () => {
+            // no-op
+          },
+          onComplete: async (result) => {
+            const revisionId = generateId();
+            const now = new Date().toISOString();
+            const profile: GeneratedProfile = {
+              id: generateId(),
+              schemaId: selectedSchema.id,
+              schemaName: selectedSchema.name,
+              provider: FIXED_PROVIDER,
+              model: FIXED_MODEL_NAME,
+              generatedAt: now,
+              seeds: {},
+              prompt: trimmedPrompt,
+              temperature: FIXED_TEMPERATURE,
+              profile: result.profile,
+              revisions: [
+                {
+                  id: revisionId,
+                  createdAt: now,
+                  kind: 'generate',
+                  prompt: trimmedPrompt,
+                  snapshot: result.profile,
+                  confidence: evaluateConfidence(selectedSchema, result.profile, selectedSchema.generationOrder?.length ?? 1),
+                },
+              ],
+              activeRevisionId: revisionId,
+            };
+            await addProfile(profile);
+            setActiveProfile(profile.id);
+            toast('Character ready', 'Opening Profiles workspace.', 'success');
+            setActiveView('history');
+            resolve();
+          },
+          onError: (error) => {
+            toast('Generation failed', error, 'error');
+            reject(new Error(error));
+          },
+        });
+      });
+    } catch {
+      // handled with toast
+    } finally {
+      setGenerating(false);
+      setPassInfo(0, 1, []);
+    }
+  }, [
+    selectedSchema,
+    providerHasKey,
+    getApiKey,
+    setGenerating,
+    setStreamContent,
+    setPassInfo,
+    appendStreamContent,
+    addProfile,
+    setActiveProfile,
+    setActiveView,
+  ]);
+
+  useEffect(() => {
+    const baseChips = [
+      { id: 'view', label: 'Create' },
+      { id: 'schema', label: selectedSchema ? `Schema: ${selectedSchema.name}` : 'Schema required' },
+      { id: 'mode', label: 'Mode: Generate' },
+    ];
+
+    if (!providerHasKey) {
+      setConfig({
+        chips: baseChips,
+        placeholder: 'Add your OpenAI key in Settings to generate.',
+        submitLabel: 'Generate',
+        disabled: true,
+        disabledReason: 'Open Settings and add an API key.',
+        busy: false,
+        onSubmit: undefined,
+      });
+      return;
+    }
+
+    if (!selectedSchema) {
+      setConfig({
+        chips: baseChips,
+        placeholder: 'Select a schema to continue.',
+        submitLabel: 'Generate',
+        disabled: true,
+        disabledReason: 'Choose a schema first.',
+        busy: false,
+        onSubmit: undefined,
+      });
+      return;
+    }
+
+    setConfig({
+      chips: baseChips,
+      placeholder: 'Describe the character to generate with the selected schema.',
+      submitLabel: 'Generate',
+      disabled: false,
+      disabledReason: undefined,
+      busy: isGenerating,
+      onSubmit: handleGenerate,
+    });
+  }, [handleGenerate, isGenerating, providerHasKey, selectedSchema, setConfig]);
+
+  useEffect(() => () => resetConfig(), [resetConfig]);
+
+  return (
+    <div className="h-full overflow-y-auto bg-background">
+      <div className="mx-auto max-w-3xl p-6 space-y-4">
+        <div>
+          <h2 className="text-xl font-semibold tracking-tight">Create Character</h2>
+          <p className="text-sm text-muted-foreground mt-1">
+            This screen is generation only. After completion, you are moved to Profiles for review and refinement.
+          </p>
+        </div>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-sm">Generation Context</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium text-muted-foreground">Schema</label>
+              <Select
+                value={selectedSchemaId}
+                onValueChange={setSelectedSchemaId}
+                placeholder="Select a schema..."
+                options={presets.map((preset) => ({
+                  value: preset.id,
+                  label: `${preset.name} (${preset.fields.length} fields)`,
+                }))}
+              />
+            </div>
+
+            <div className="flex flex-wrap gap-1.5 text-[10px]">
+              <Badge variant="secondary">{FIXED_PROVIDER_NAME}</Badge>
+              <Badge variant="outline">{FIXED_MODEL_NAME}</Badge>
+              <Badge variant="outline">T: {FIXED_TEMPERATURE.toFixed(2)}</Badge>
+              {multiPass && selectedSchema?.generationOrder && (
+                <Badge variant="outline">{selectedSchema.generationOrder.length}-pass</Badge>
+              )}
+              {selectedSchema?.specificity && (
+                <Badge variant="outline">{selectedSchema.specificity} specificity</Badge>
+              )}
+            </div>
+
+            <p className="text-xs text-muted-foreground">
+              Provide a plain-text brief to generate your character.
+            </p>
+          </CardContent>
+        </Card>
+
+        {!providerHasKey && (
+          <div className="flex items-center gap-2 text-sm text-amber-400 bg-amber-500/10 rounded-md p-3">
+            <AlertCircle className="h-4 w-4 shrink-0" />
+            <span>No API key configured for OpenAI. Add one in Settings.</span>
+          </div>
+        )}
+
+        {(isGenerating || streamContent) && (
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-sm">Generation Stream</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {totalPasses > 1 ? (
+                <div className="flex items-center gap-2">
+                  {Array.from({ length: totalPasses }).map((_, index) => (
+                    <div
+                      key={index}
+                      className={`h-1.5 flex-1 rounded-full transition-colors ${
+                        index < currentPass ? 'bg-primary' : index === currentPass && isGenerating ? 'bg-primary animate-pulse' : 'bg-muted'
+                      }`}
+                    />
+                  ))}
+                </div>
+              ) : (
+                <div className="h-1.5 rounded-full bg-muted overflow-hidden">
+                  <div className={`h-full bg-primary ${isGenerating ? 'w-1/2 animate-pulse' : 'w-full'}`} />
+                </div>
+              )}
+
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-[11px] text-muted-foreground">
+                  {isGenerating
+                    ? totalPasses > 1
+                      ? `Pass ${currentPass + 1} of ${totalPasses}`
+                      : 'Generating profile'
+                    : 'Generation complete'}
+                  {currentPassKeys.length > 0 && ` · ${currentPassKeys.join(', ')}`}
+                </p>
+                <button
+                  onClick={() => setShowStream((prev) => !prev)}
+                  className="text-[11px] text-muted-foreground hover:text-foreground cursor-pointer inline-flex items-center gap-1"
+                >
+                  <ChevronDown className={`h-3.5 w-3.5 transition-transform ${showStream ? 'rotate-180' : ''}`} />
+                  Raw stream
+                </button>
+              </div>
+
+              {showStream && (
+                <pre className="text-xs font-mono whitespace-pre-wrap text-muted-foreground rounded-md border border-border p-3">
+                  {streamContent || 'Waiting for tokens...'}
+                </pre>
+              )}
+            </CardContent>
+          </Card>
+        )}
+      </div>
+    </div>
+  );
+}

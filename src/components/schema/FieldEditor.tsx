@@ -23,6 +23,8 @@ const fieldTypeOptions: { value: FieldType; label: string }[] = [
   { value: 'scale', label: 'Scale (ordered)' },
   { value: 'trait-list', label: 'Trait List' },
   { value: 'references', label: 'References' },
+  { value: 'ranked-likes', label: 'Ranked Likes' },
+  { value: 'ranked-dislikes', label: 'Ranked Dislikes' },
   { value: 'array', label: 'Array (list)' },
   { value: 'object', label: 'Object (section)' },
 ];
@@ -64,6 +66,10 @@ export function FieldEditor({ field, onChange, onDelete, depth = 0, allFieldKeys
     if (type === 'scale') updated.levels = field.levels?.length ? field.levels : ['Low', 'Medium', 'High'];
     if (type === 'trait-list') { updated.traitCount = field.traitCount ?? 5; updated.traitConstraint = field.traitConstraint ?? ''; }
     if (type === 'references') updated.referenceCount = field.referenceCount ?? 3;
+    if (type === 'ranked-likes' || type === 'ranked-dislikes') {
+      updated.rankedItemCount = field.rankedItemCount ?? 5;
+      updated.rankedDescriptor = field.rankedDescriptor ?? '';
+    }
     if (type === 'object') updated.fields = field.fields?.length ? field.fields : [];
     if (type === 'array') updated.arrayItemType = field.arrayItemType ?? 'text';
     // Clear irrelevant props
@@ -71,6 +77,10 @@ export function FieldEditor({ field, onChange, onDelete, depth = 0, allFieldKeys
     if (type !== 'scale') updated.levels = undefined;
     if (type !== 'trait-list') { updated.traitCount = undefined; updated.traitConstraint = undefined; }
     if (type !== 'references') updated.referenceCount = undefined;
+    if (type !== 'ranked-likes' && type !== 'ranked-dislikes') {
+      updated.rankedItemCount = undefined;
+      updated.rankedDescriptor = undefined;
+    }
     if (type !== 'object') updated.fields = type === 'array' && field.arrayItemType === 'object' ? field.fields : undefined;
     if (type !== 'array') updated.arrayItemType = undefined;
     onChange({ ...field, ...updated });
@@ -109,19 +119,15 @@ export function FieldEditor({ field, onChange, onDelete, depth = 0, allFieldKeys
   const updateEnumOption = (i: number, v: string) => { const o = [...(field.options ?? [])]; o[i] = v; update({ options: o }); };
   const deleteEnumOption = (i: number) => { const o = [...(field.options ?? [])]; o.splice(i, 1); update({ options: o }); };
 
-  const typeLabel = fieldTypeOptions.find((t) => t.value === field.type)?.label ?? field.type;
-
   return (
     <div className={cn('rounded-md border border-border bg-card/50', depth > 0 && 'ml-4')}>
       {/* Header row */}
       <div className="flex items-center gap-2 p-3">
         <GripVertical className="h-4 w-4 text-muted-foreground shrink-0 cursor-grab" />
 
-        {(hasChildren || true) && (
-          <button onClick={() => setExpanded(!expanded)} className="shrink-0 cursor-pointer">
-            {expanded ? <ChevronDown className="h-4 w-4 text-muted-foreground" /> : <ChevronRight className="h-4 w-4 text-muted-foreground" />}
-          </button>
-        )}
+        <button onClick={() => setExpanded(!expanded)} className="shrink-0 cursor-pointer">
+          {expanded ? <ChevronDown className="h-4 w-4 text-muted-foreground" /> : <ChevronRight className="h-4 w-4 text-muted-foreground" />}
+        </button>
 
         <Input
           value={field.label}
@@ -295,6 +301,32 @@ export function FieldEditor({ field, onChange, onDelete, depth = 0, allFieldKeys
             </div>
           )}
 
+          {/* Ranked list config */}
+          {(field.type === 'ranked-likes' || field.type === 'ranked-dislikes') && (
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <label className="text-xs text-muted-foreground">Number of ranked items</label>
+                <Input
+                  type="number"
+                  value={field.rankedItemCount ?? 5}
+                  onChange={(e) => update({ rankedItemCount: parseInt(e.target.value) || 5 })}
+                  className="h-7 text-xs w-24"
+                  min={1}
+                  max={20}
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs text-muted-foreground">Descriptor</label>
+                <Input
+                  value={field.rankedDescriptor ?? ''}
+                  onChange={(e) => update({ rankedDescriptor: e.target.value || undefined })}
+                  className="h-7 text-xs"
+                  placeholder="e.g., foods, people, date behaviors"
+                />
+              </div>
+            </div>
+          )}
+
           {/* Array item type */}
           {field.type === 'array' && (
             <div className="space-y-1">
@@ -307,7 +339,15 @@ export function FieldEditor({ field, onChange, onDelete, depth = 0, allFieldKeys
                   if (itemType === 'object') updated.fields = field.fields?.length ? field.fields : [];
                   update(updated);
                 }}
-                options={fieldTypeOptions.filter((t) => t.value !== 'array' && t.value !== 'scale' && t.value !== 'trait-list' && t.value !== 'references')}
+                options={fieldTypeOptions.filter(
+                  (t) =>
+                    t.value !== 'array' &&
+                    t.value !== 'scale' &&
+                    t.value !== 'trait-list' &&
+                    t.value !== 'references' &&
+                    t.value !== 'ranked-likes' &&
+                    t.value !== 'ranked-dislikes'
+                )}
                 className="w-48"
               />
             </div>

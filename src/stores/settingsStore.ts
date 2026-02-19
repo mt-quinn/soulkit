@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { AppSettings, LLMProvider } from '@/types';
+import type { AppSettings } from '@/types';
 import { storage } from '@/lib/storage';
 
 const SETTINGS_FILE = 'settings.json';
@@ -8,11 +8,13 @@ const defaultSettings: AppSettings = {
   theme: 'dark',
   apiKeys: {
     openai: '',
-    anthropic: '',
-    gemini: '',
   },
-  defaultProvider: 'openai',
-  defaultTemperature: 0.8,
+  ui: {
+    skipDeleteConfirmations: {
+      schemas: false,
+      profiles: false,
+    },
+  },
 };
 
 interface SettingsState {
@@ -20,10 +22,11 @@ interface SettingsState {
   loaded: boolean;
   loadSettings: () => Promise<void>;
   saveSettings: (settings: Partial<AppSettings>) => Promise<void>;
-  setApiKey: (provider: LLMProvider, key: string) => Promise<void>;
+  setApiKey: (key: string) => Promise<void>;
   setTheme: (theme: AppSettings['theme']) => void;
-  getApiKey: (provider: LLMProvider) => string;
-  hasApiKey: (provider: LLMProvider) => boolean;
+  setDeleteWarningSuppressed: (target: 'schemas' | 'profiles', suppressed: boolean) => Promise<void>;
+  getApiKey: () => string;
+  hasApiKey: () => boolean;
 }
 
 export const useSettingsStore = create<SettingsState>((set, get) => ({
@@ -33,7 +36,20 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   loadSettings: async () => {
     try {
       const saved = await storage.readJson<AppSettings>(SETTINGS_FILE);
-      const merged = { ...defaultSettings, ...saved, apiKeys: { ...defaultSettings.apiKeys, ...saved.apiKeys } };
+      const savedUi = saved.ui ?? {};
+      const merged = {
+        ...defaultSettings,
+        ...saved,
+        apiKeys: { ...defaultSettings.apiKeys, ...saved.apiKeys },
+        ui: {
+          ...defaultSettings.ui,
+          ...savedUi,
+          skipDeleteConfirmations: {
+            ...defaultSettings.ui.skipDeleteConfirmations,
+            ...(savedUi.skipDeleteConfirmations ?? {}),
+          },
+        },
+      };
       set({ settings: merged, loaded: true });
       applyTheme(merged.theme);
     } catch {
@@ -44,16 +60,31 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
 
   saveSettings: async (partial) => {
     const current = get().settings;
-    const updated = { ...current, ...partial };
+    const updated = {
+      ...current,
+      ...partial,
+      apiKeys: {
+        ...current.apiKeys,
+        ...(partial.apiKeys ?? {}),
+      },
+      ui: {
+        ...current.ui,
+        ...(partial.ui ?? {}),
+        skipDeleteConfirmations: {
+          ...current.ui.skipDeleteConfirmations,
+          ...(partial.ui?.skipDeleteConfirmations ?? {}),
+        },
+      },
+    };
     set({ settings: updated });
     await storage.writeJson(SETTINGS_FILE, updated);
   },
 
-  setApiKey: async (provider, key) => {
+  setApiKey: async (key) => {
     const current = get().settings;
     const updated = {
       ...current,
-      apiKeys: { ...current.apiKeys, [provider]: key },
+      apiKeys: { openai: key },
     };
     set({ settings: updated });
     await storage.writeJson(SETTINGS_FILE, updated);
@@ -67,10 +98,26 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
     storage.writeJson(SETTINGS_FILE, updated);
   },
 
-  getApiKey: (provider) => get().settings.apiKeys[provider],
+  setDeleteWarningSuppressed: async (target, suppressed) => {
+    const current = get().settings;
+    const updated: AppSettings = {
+      ...current,
+      ui: {
+        ...current.ui,
+        skipDeleteConfirmations: {
+          ...current.ui.skipDeleteConfirmations,
+          [target]: suppressed,
+        },
+      },
+    };
+    set({ settings: updated });
+    await storage.writeJson(SETTINGS_FILE, updated);
+  },
 
-  hasApiKey: (provider) => {
-    const key = get().settings.apiKeys[provider];
+  getApiKey: () => get().settings.apiKeys.openai,
+
+  hasApiKey: () => {
+    const key = get().settings.apiKeys.openai;
     return key !== undefined && key.trim().length > 0;
   },
 }));

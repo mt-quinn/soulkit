@@ -1,19 +1,12 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/Card';
 import { Input } from '@/components/ui/Input';
 import { Button } from '@/components/ui/Button';
-import { Select } from '@/components/ui/Select';
-import { Slider } from '@/components/ui/Slider';
 import { toast } from '@/stores/toastStore';
 import { Eye, EyeOff, Sun, Moon, Monitor } from 'lucide-react';
-import type { LLMProvider, AppSettings } from '@/types';
-
-const providers: { id: LLMProvider; name: string; placeholder: string }[] = [
-  { id: 'openai', name: 'OpenAI', placeholder: 'sk-...' },
-  { id: 'anthropic', name: 'Anthropic', placeholder: 'sk-ant-...' },
-  { id: 'gemini', name: 'Google Gemini', placeholder: 'AI...' },
-];
+import type { AppSettings } from '@/types';
+import { FIXED_MODEL_NAME, FIXED_PROVIDER_NAME, FIXED_TEMPERATURE } from '@/services/types';
 
 const themeOptions: { value: AppSettings['theme']; label: string; icon: typeof Sun }[] = [
   { value: 'light', label: 'Light', icon: Sun },
@@ -22,29 +15,17 @@ const themeOptions: { value: AppSettings['theme']; label: string; icon: typeof S
 ];
 
 export function SettingsPage() {
-  const { settings, setApiKey, setTheme, saveSettings } = useSettingsStore();
+  const { settings, setApiKey, setTheme } = useSettingsStore();
   const [visibleKeys, setVisibleKeys] = useState<Record<string, boolean>>({});
-  const [keyInputs, setKeyInputs] = useState<Record<string, string>>({
-    openai: settings.apiKeys.openai,
-    anthropic: settings.apiKeys.anthropic,
-    gemini: settings.apiKeys.gemini,
-  });
-
-  useEffect(() => {
-    setKeyInputs({
-      openai: settings.apiKeys.openai,
-      anthropic: settings.apiKeys.anthropic,
-      gemini: settings.apiKeys.gemini,
-    });
-  }, [settings.apiKeys]);
+  const [openaiKeyInput, setOpenaiKeyInput] = useState(settings.apiKeys.openai);
 
   const toggleVisible = (id: string) =>
     setVisibleKeys((prev) => ({ ...prev, [id]: !prev[id] }));
 
-  const handleSaveKey = async (provider: LLMProvider) => {
-    const value = keyInputs[provider]?.trim() ?? '';
-    await setApiKey(provider, value);
-    toast('API key saved', `${provider} key has been updated.`, 'success');
+  const handleSaveOpenAiKey = async () => {
+    const value = openaiKeyInput.trim();
+    await setApiKey(value);
+    toast('API key saved', 'OpenAI key has been updated.', 'success');
   };
 
   return (
@@ -86,81 +67,56 @@ export function SettingsPage() {
         {/* API Keys */}
         <Card>
           <CardHeader>
-            <CardTitle>API Keys</CardTitle>
+            <CardTitle>API Key</CardTitle>
             <CardDescription>
-              Enter your API keys for each provider. Keys are stored locally on your machine.
+              Enter your OpenAI API key. It is stored locally on your machine.
             </CardDescription>
           </CardHeader>
-          <CardContent className="space-y-5">
-            {providers.map(({ id, name, placeholder }) => (
-              <div key={id} className="space-y-2">
-                <label className="text-sm font-medium">{name}</label>
-                <div className="flex gap-2">
-                  <div className="relative flex-1">
-                    <Input
-                      type={visibleKeys[id] ? 'text' : 'password'}
-                      placeholder={placeholder}
-                      value={keyInputs[id] ?? ''}
-                      onChange={(e) =>
-                        setKeyInputs((prev) => ({ ...prev, [id]: e.target.value }))
-                      }
-                      className="pr-10"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => toggleVisible(id)}
-                      className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
-                    >
-                      {visibleKeys[id] ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                    </button>
-                  </div>
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    onClick={() => handleSaveKey(id)}
-                    className="shrink-0"
+          <CardContent>
+            <div className="space-y-2">
+              <label className="text-sm font-medium">OpenAI</label>
+              <div className="flex gap-2">
+                <div className="relative flex-1">
+                  <Input
+                    type={visibleKeys.openai ? 'text' : 'password'}
+                    placeholder="sk-..."
+                    value={openaiKeyInput}
+                    onChange={(e) => setOpenaiKeyInput(e.target.value)}
+                    className="pr-10"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => toggleVisible('openai')}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
                   >
-                    Save
-                  </Button>
+                    {visibleKeys.openai ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  </button>
                 </div>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={handleSaveOpenAiKey}
+                  className="shrink-0"
+                >
+                  Save
+                </Button>
               </div>
-            ))}
+            </div>
           </CardContent>
         </Card>
 
-        {/* Defaults */}
+        {/* Runtime */}
         <Card>
           <CardHeader>
-            <CardTitle>Defaults</CardTitle>
-            <CardDescription>Set default generation preferences.</CardDescription>
+            <CardTitle>Model Runtime</CardTitle>
+            <CardDescription>
+              Runtime is intentionally fixed for consistency.
+            </CardDescription>
           </CardHeader>
-          <CardContent className="space-y-5">
-            <div className="space-y-2">
-              <label className="text-sm font-medium">Default Provider</label>
-              <Select
-                value={settings.defaultProvider}
-                onValueChange={(v) => saveSettings({ defaultProvider: v as LLMProvider })}
-                options={providers.map((p) => ({ value: p.id, label: p.name }))}
-              />
-            </div>
-            <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <label className="text-sm font-medium">Default Temperature</label>
-                <span className="text-sm text-muted-foreground font-mono">
-                  {settings.defaultTemperature.toFixed(1)}
-                </span>
-              </div>
-              <Slider
-                value={settings.defaultTemperature}
-                onValueChange={(v) => saveSettings({ defaultTemperature: v })}
-                min={0}
-                max={2}
-                step={0.1}
-              />
-              <p className="text-xs text-muted-foreground">
-                Lower = more focused and deterministic. Higher = more creative and random.
-              </p>
-            </div>
+          <CardContent className="space-y-2 text-sm">
+            <p><span className="font-medium">Provider:</span> {FIXED_PROVIDER_NAME}</p>
+            <p><span className="font-medium">Model:</span> {FIXED_MODEL_NAME}</p>
+            <p><span className="font-medium">Temperature:</span> {FIXED_TEMPERATURE.toFixed(2)}</p>
           </CardContent>
         </Card>
       </div>

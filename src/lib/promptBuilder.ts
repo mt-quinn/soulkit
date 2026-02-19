@@ -9,7 +9,10 @@ function fieldToJsonSchema(field: SchemaField): Record<string, unknown> {
 
   switch (field.type) {
     case 'text':
-      return { type: 'string', description: desc };
+      return {
+        type: 'string',
+        description: `${desc} (Default length: one concise sentence or short phrase. Keep under 25 words unless explicitly requested otherwise.)`,
+      };
     case 'number':
       return { type: 'number', description: desc };
     case 'boolean':
@@ -22,6 +25,28 @@ function fieldToJsonSchema(field: SchemaField): Record<string, unknown> {
       return { type: 'string', description: `${desc} — a comma-separated list of exactly ${field.traitCount ?? 5} ${field.traitConstraint ?? 'descriptive adjectives'}` };
     case 'references':
       return { type: 'string', description: `${desc} — ${field.referenceCount ?? 3} well-known fictional/real characters in "Name (Source)" format, comma-separated` };
+    case 'ranked-likes': {
+      const count = field.rankedItemCount ?? 5;
+      const descriptor = field.rankedDescriptor ?? 'things';
+      return {
+        type: 'array',
+        minItems: count,
+        maxItems: count,
+        items: { type: 'string' },
+        description: `${desc} — ranked likes for ${descriptor}. Return exactly ${count} entries, each explicitly numbered like "1. ...", "2. ...", ranked strongest to weakest.`,
+      };
+    }
+    case 'ranked-dislikes': {
+      const count = field.rankedItemCount ?? 5;
+      const descriptor = field.rankedDescriptor ?? 'things';
+      return {
+        type: 'array',
+        minItems: count,
+        maxItems: count,
+        items: { type: 'string' },
+        description: `${desc} — ranked dislikes for ${descriptor}. Return exactly ${count} entries, each explicitly numbered like "1. ...", "2. ...", ranked strongest to weakest.`,
+      };
+    }
     case 'array': {
       if (field.arrayItemType === 'object' && field.fields?.length) {
         return { type: 'array', items: fieldsToObjectSchema(field.fields), description: desc };
@@ -61,8 +86,8 @@ export function buildJsonSchemaForFields(fields: SchemaField[]): Record<string, 
 // ============================================================
 
 const SPECIFICITY_INSTRUCTIONS: Record<string, string> = {
-  low: 'Use broad strokes and general descriptions. Keep details light and flexible.',
-  medium: 'Include specific details and concrete examples where appropriate. Balance between broad strokes and sharp detail.',
+  low: 'Use broad strokes and general descriptions. Keep details light, brief, and flexible.',
+  medium: 'Use concise, concrete details where needed. Prioritize clarity and brevity over depth.',
   high: `Be extremely specific and concrete. Instead of "had a bad experience," write "a catastrophic misjudgment during a high-pressure surgery resulted in a patient's death and a subsequent lawsuit." Every detail should be vivid, particular, and memorable. No generic filler.`,
 };
 
@@ -72,7 +97,7 @@ const SPECIFICITY_INSTRUCTIONS: Record<string, string> = {
 
 const HINT_INSTRUCTIONS: Record<GenerationHint, string> = {
   identity: 'This is a core identity field. Make it distinctive, memorable, and immediately evocative of the character.',
-  narrative: 'This is a narrative field. Write a concise paragraph (3-4 sentences max) with causal depth — include a specific inciting incident or turning point that explains who this character is now. Be dense and vivid, not verbose.',
+  narrative: 'This is a narrative field. Write 1-2 concise sentences with causal depth — include a specific turning point that explains who this character is now.',
   behavioral: 'This is a behavioral instruction field. The output will be used as a direct instruction for how an LLM agent should behave. Write it as an actionable directive, not a description. Example: "Retreats into technical medical language when stressed" rather than "Gets nervous sometimes."',
   calibration: 'This is a calibration field. Select well-known fictional or real characters whose personality, communication style, and energy closely match this character. These serve as reference points that an LLM can use to calibrate behavior.',
 };
@@ -82,14 +107,19 @@ const HINT_INSTRUCTIONS: Record<GenerationHint, string> = {
 // ============================================================
 
 export function buildSystemPrompt(schema: SchemaPreset): string {
-  const specificity = schema.specificity ?? 'high';
-  return `You are a creative character profile generator specialized in creating LLM agent personality profiles. Your task is to generate a detailed, original, and internally consistent character profile.
+  const specificity = schema.specificity ?? 'low';
+  return `You are a creative character profile generator specialized in creating LLM agent personality profiles. Your task is to generate a concise, original, and internally consistent character profile.
 
 You MUST respond with valid JSON that exactly matches the provided schema. Do not include any text outside the JSON object.
 
 QUALITY RULES:
 - Every field must be internally consistent with every other field. Traits, backstory, quirks, and descriptions must all reinforce the same coherent identity.
 - ${SPECIFICITY_INSTRUCTIONS[specificity]}
+- Brevity first: prefer short, information-dense outputs over long prose.
+- For most text fields, use one sentence or a short phrase.
+- For narrative/description fields, use 1-2 sentences unless the user explicitly requests depth.
+- Length limits by default: most text fields <= 25 words; narrative/description fields <= 45 words.
+- Avoid repeating the same idea across multiple fields.
 - Avoid clichés and generic filler. Every word should earn its place.
 - For personality traits/scales: understand that these form an interconnected system. A character who is "Quiet" on Chattiness is unlikely to be "Redirective" on Steering. Make trait selections that form a coherent personality.
 - For backstory/narrative fields: include a specific wound, turning point, or conflict that causally explains the character's current personality.
@@ -101,11 +131,9 @@ ${schema.description ? `Schema description: ${schema.description}` : ''}`;
 
 export function buildUserPrompt(
   schema: SchemaPreset,
-  seeds: Record<string, unknown>,
+  userInput: string,
   jsonSchema: Record<string, unknown>
 ): string {
-  const hasSeedValues = Object.keys(seeds).length > 0;
-
   let prompt = `Generate a character profile matching this JSON Schema:\n\n\`\`\`json\n${JSON.stringify(jsonSchema, null, 2)}\n\`\`\`\n`;
 
   // Add field-level generation hints
@@ -123,12 +151,11 @@ export function buildUserPrompt(
     prompt += `\nGenerate a NEW profile at this same level of quality. Do not copy or closely imitate the examples — create something original.\n`;
   }
 
-  if (hasSeedValues) {
-    prompt += `\nThe following values are FIXED and must be used exactly as provided:\n\n\`\`\`json\n${JSON.stringify(seeds, null, 2)}\n\`\`\`\n`;
-    prompt += `\nGenerate all remaining fields creatively, ensuring deep consistency with the provided seed values.\n`;
-  } else {
-    prompt += `\nGenerate all fields with creative, original content. Make the character unique and interesting.\n`;
-  }
+  prompt += `\nUser brief (the character must satisfy this brief):\n${userInput.trim()}\n`;
+  prompt += `\nInterpret the brief and fill ALL schema fields, even if the user does not mention each one explicitly.`;
+  prompt += `\nDo not ask follow-up questions. Infer reasonable details while staying faithful to the brief.\n`;
+  prompt += `\nDefault to concise output. Keep text fields brief unless the brief explicitly asks for longer prose.\n`;
+  prompt += `\nIf schema descriptions contain broad length ranges, treat those as maximums and prefer the shortest high-quality answer.\n`;
 
   prompt += `\nRespond with ONLY the JSON object. No additional text, explanations, or markdown formatting.`;
   return prompt;
@@ -142,7 +169,7 @@ export function buildUserPrompt(
  * Build system prompt for a specific pass in multi-pass generation.
  */
 export function buildPassSystemPrompt(schema: SchemaPreset, passIndex: number, totalPasses: number): string {
-  const specificity = schema.specificity ?? 'high';
+  const specificity = schema.specificity ?? 'low';
   return `You are a creative character profile generator building a profile in stages. This is pass ${passIndex + 1} of ${totalPasses}.
 
 You MUST respond with valid JSON containing ONLY the fields requested. Do not include any text outside the JSON object.
@@ -150,6 +177,10 @@ You MUST respond with valid JSON containing ONLY the fields requested. Do not in
 QUALITY RULES:
 - ${SPECIFICITY_INSTRUCTIONS[specificity]}
 - Every field must be internally consistent with all previously established fields.
+- Brevity first: prefer compact outputs over long prose.
+- For most text fields, use one sentence or a short phrase.
+- For narrative/description fields, use 1-2 sentences unless explicitly requested otherwise.
+- Length limits by default: most text fields <= 25 words; narrative/description fields <= 45 words.
 - Avoid clichés and generic filler. Be specific, vivid, and original.
 
 Schema name: ${schema.name}
@@ -165,11 +196,10 @@ export function buildPassUserPrompt(
   passFields: SchemaField[],
   passJsonSchema: Record<string, unknown>,
   priorOutput: Record<string, unknown>,
-  seeds: Record<string, unknown>,
+  userInput: string,
   passIndex: number
 ): string {
   const hasPrior = Object.keys(priorOutput).length > 0;
-  const hasSeedValues = Object.keys(seeds).length > 0;
 
   let prompt = '';
 
@@ -189,6 +219,7 @@ export function buildPassUserPrompt(
 
   // The fields to generate in this pass
   prompt += `Now generate ONLY the following fields as a JSON object:\n\n\`\`\`json\n${JSON.stringify(passJsonSchema, null, 2)}\n\`\`\`\n`;
+  prompt += `\nUser brief:\n${userInput.trim()}\n`;
 
   // Field-level generation hints for this pass
   const hintAnnotations = collectHintAnnotations(passFields);
@@ -203,7 +234,7 @@ export function buildPassUserPrompt(
     prompt += `\nFor identity fields: make names distinctive and memorable. Archetypes should be a concise "The [Adjective] [Noun]" pattern.\n`;
   }
   if (hints.has('narrative') && hasPrior) {
-    prompt += `\nFor narrative fields: keep backstories to ONE short paragraph (3-4 sentences). The backstory must EXPLAIN and CAUSALLY JUSTIFY the traits already established above — include a specific inciting incident or turning point. Be dense and vivid, not verbose. The description should be 2-3 sentences.\n`;
+    prompt += `\nFor narrative fields: keep backstories to 1-2 sentences. They must EXPLAIN and CAUSALLY JUSTIFY traits already established above with a specific turning point. Description fields should be 1-2 sentences.\n`;
   }
   if (hints.has('behavioral') && hasPrior) {
     prompt += `\nFor behavioral fields: produce actionable directives that an LLM agent could follow. Each should be a concrete behavior pattern, not a vague personality trait. Example: "Retreats into technical jargon when stressed" rather than "Gets nervous."\n`;
@@ -212,17 +243,8 @@ export function buildPassUserPrompt(
     prompt += `\nFor calibration fields: select well-known fictional characters whose personality and energy closely match the profile established above. Format as "Name (Source)" and choose references that would help an LLM calibrate the right tone and style.\n`;
   }
 
-  // Seeds that apply to this pass
-  const passKeys = new Set(passFields.map((f) => f.key));
-  const passSeeds: Record<string, unknown> = {};
-  for (const [key, value] of Object.entries(seeds)) {
-    if (passKeys.has(key)) {
-      passSeeds[key] = value;
-    }
-  }
-  if (Object.keys(passSeeds).length > 0) {
-    prompt += `\nThe following values are FIXED for this pass and must be used exactly:\n\n\`\`\`json\n${JSON.stringify(passSeeds, null, 2)}\n\`\`\`\n`;
-  }
+  prompt += `\nInterpret the brief and prior fields to infer any missing detail while keeping strong internal consistency.\n`;
+  prompt += `\nDefault to concise outputs: most text fields under 25 words; narrative/description fields under 45 words unless the brief explicitly asks for more.\n`;
 
   prompt += `\nRespond with ONLY the JSON object containing the requested fields. No additional text.`;
   return prompt;

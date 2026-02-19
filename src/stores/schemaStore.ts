@@ -3,6 +3,7 @@ import type { SchemaPreset, SchemaField } from '@/types';
 import { storage } from '@/lib/storage';
 import { generateId } from '@/lib/utils';
 import { getDefaultPresets } from '@/lib/defaultPresets';
+import { createDefaultNameField, ensureSchemaHasReadableNameField } from '@/lib/profileIdentity';
 
 const SCHEMAS_DIR = 'schemas';
 
@@ -34,7 +35,11 @@ export const useSchemaStore = create<SchemaState>((set, get) => ({
       if (file.endsWith('.json')) {
         try {
           const preset = await storage.readJson<SchemaPreset>(`${SCHEMAS_DIR}/${file}`);
-          presets.push(preset);
+          const normalized = ensureSchemaHasReadableNameField(preset);
+          presets.push(normalized);
+          if (JSON.stringify(normalized) !== JSON.stringify(preset)) {
+            await storage.writeJson(`${SCHEMAS_DIR}/${file}`, normalized);
+          }
         } catch {
           // skip corrupt files
         }
@@ -45,8 +50,9 @@ export const useSchemaStore = create<SchemaState>((set, get) => ({
     const defaults = getDefaultPresets();
     for (const def of defaults) {
       if (!presets.find((p) => p.id === def.id)) {
-        presets.push(def);
-        await storage.writeJson(`${SCHEMAS_DIR}/${def.id}.json`, def);
+        const normalized = ensureSchemaHasReadableNameField(def);
+        presets.push(normalized);
+        await storage.writeJson(`${SCHEMAS_DIR}/${def.id}.json`, normalized);
       }
     }
 
@@ -55,7 +61,7 @@ export const useSchemaStore = create<SchemaState>((set, get) => ({
   },
 
   savePreset: async (preset) => {
-    const updated = { ...preset, updatedAt: new Date().toISOString() };
+    const updated = ensureSchemaHasReadableNameField({ ...preset, updatedAt: new Date().toISOString() });
     await storage.writeJson(`${SCHEMAS_DIR}/${updated.id}.json`, updated);
     set((state) => ({
       presets: state.presets.map((p) => (p.id === updated.id ? updated : p)),
@@ -70,13 +76,14 @@ export const useSchemaStore = create<SchemaState>((set, get) => ({
       name,
       version: 1,
       description,
-      fields: [],
+      fields: [createDefaultNameField()],
       createdAt: now,
       updatedAt: now,
     };
-    await storage.writeJson(`${SCHEMAS_DIR}/${preset.id}.json`, preset);
-    set((state) => ({ presets: [...state.presets, preset].sort((a, b) => a.name.localeCompare(b.name)) }));
-    return preset;
+    const normalized = ensureSchemaHasReadableNameField(preset);
+    await storage.writeJson(`${SCHEMAS_DIR}/${normalized.id}.json`, normalized);
+    set((state) => ({ presets: [...state.presets, normalized].sort((a, b) => a.name.localeCompare(b.name)) }));
+    return normalized;
   },
 
   duplicatePreset: async (id) => {
@@ -91,9 +98,10 @@ export const useSchemaStore = create<SchemaState>((set, get) => ({
       createdAt: now,
       updatedAt: now,
     };
-    await storage.writeJson(`${SCHEMAS_DIR}/${preset.id}.json`, preset);
-    set((state) => ({ presets: [...state.presets, preset].sort((a, b) => a.name.localeCompare(b.name)) }));
-    return preset;
+    const normalized = ensureSchemaHasReadableNameField(preset);
+    await storage.writeJson(`${SCHEMAS_DIR}/${normalized.id}.json`, normalized);
+    set((state) => ({ presets: [...state.presets, normalized].sort((a, b) => a.name.localeCompare(b.name)) }));
+    return normalized;
   },
 
   deletePreset: async (id) => {

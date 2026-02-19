@@ -8,9 +8,9 @@ interface SidebarProps {
 }
 
 const navItems: { view: AppView; label: string; icon: typeof Sparkles }[] = [
-  { view: 'generate', label: 'Generate', icon: Sparkles },
+  { view: 'generate', label: 'Create', icon: Sparkles },
   { view: 'schemas', label: 'Schemas', icon: Layers },
-  { view: 'history', label: 'History', icon: Clock },
+  { view: 'history', label: 'Profiles', icon: Clock },
   { view: 'settings', label: 'Settings', icon: Settings },
 ];
 

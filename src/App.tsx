@@ -2,8 +2,8 @@ import { useEffect } from 'react';
 import { AppShell } from '@/components/layout/AppShell';
 import { SettingsPage } from '@/components/settings/SettingsPage';
 import { SchemaEditor } from '@/components/schema/SchemaEditor';
-import { GeneratorPanel } from '@/components/generator/GeneratorPanel';
 import { HistoryList } from '@/components/profile/HistoryList';
+import { StudioPanel } from '@/components/studio/StudioPanel';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { useSchemaStore } from '@/stores/schemaStore';
 import { useProfileStore } from '@/stores/profileStore';
@@ -18,7 +18,7 @@ function App() {
     loadSettings();
     loadPresets();
     loadProfiles();
-  }, []);
+  }, [loadSettings, loadPresets, loadProfiles]);
 
   const allLoaded = settingsLoaded && schemasLoaded && profilesLoaded;
 
@@ -38,7 +38,7 @@ function App() {
       {(view: AppView) => {
         switch (view) {
           case 'generate':
-            return <GeneratorPanel />;
+            return <StudioPanel />;
           case 'schemas':
             return <SchemaEditor />;
           case 'history':
@@ -46,7 +46,7 @@ function App() {
           case 'settings':
             return <SettingsPage />;
           default:
-            return <GeneratorPanel />;
+            return <StudioPanel />;
         }
       }}
     </AppShell>

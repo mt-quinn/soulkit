@@ -1,8 +1,33 @@
 import { create } from 'zustand';
 import type { GeneratedProfile } from '@/types';
 import { storage } from '@/lib/storage';
+import { generateId } from '@/lib/utils';
 
 const PROFILES_DIR = 'profiles';
+
+function normalizeProfile(profile: GeneratedProfile): GeneratedProfile {
+  if (profile.revisions && profile.revisions.length > 0) {
+    return {
+      ...profile,
+      activeRevisionId: profile.activeRevisionId ?? profile.revisions[profile.revisions.length - 1].id,
+    };
+  }
+
+  const initialRevisionId = generateId();
+  return {
+    ...profile,
+    revisions: [
+      {
+        id: initialRevisionId,
+        createdAt: profile.generatedAt,
+        kind: 'generate',
+        prompt: profile.prompt ?? 'Initial generation',
+        snapshot: profile.profile,
+      },
+    ],
+    activeRevisionId: initialRevisionId,
+  };
+}
 
 interface ProfileState {
   profiles: GeneratedProfile[];
@@ -15,6 +40,7 @@ interface ProfileState {
   currentPassKeys: string[];
   loadProfiles: () => Promise<void>;
   addProfile: (profile: GeneratedProfile) => Promise<void>;
+  duplicateProfile: (id: string) => Promise<GeneratedProfile | null>;
   deleteProfile: (id: string) => Promise<void>;
   setActiveProfile: (id: string | null) => void;
   updateProfile: (profile: GeneratedProfile) => Promise<void>;
@@ -44,7 +70,7 @@ export const useProfileStore = create<ProfileState>((set, get) => ({
       if (file.endsWith('.json')) {
         try {
           const profile = await storage.readJson<GeneratedProfile>(`${PROFILES_DIR}/${file}`);
-          profiles.push(profile);
+          profiles.push(normalizeProfile(profile));
         } catch {
           // skip corrupt files
         }
@@ -56,11 +82,45 @@ export const useProfileStore = create<ProfileState>((set, get) => ({
   },
 
   addProfile: async (profile) => {
-    await storage.writeJson(`${PROFILES_DIR}/${profile.id}.json`, profile);
+    const normalized = normalizeProfile(profile);
+    await storage.writeJson(`${PROFILES_DIR}/${normalized.id}.json`, normalized);
     set((state) => ({
-      profiles: [profile, ...state.profiles],
-      activeProfile: profile,
+      profiles: [normalized, ...state.profiles],
+      activeProfile: normalized,
     }));
+  },
+
+  duplicateProfile: async (id) => {
+    const source = get().profiles.find((profile) => profile.id === id);
+    if (!source) return null;
+
+    const now = new Date().toISOString();
+    const duplicateId = generateId();
+    const duplicateRevisionId = generateId();
+    const duplicateProfile = normalizeProfile({
+      ...JSON.parse(JSON.stringify(source)) as GeneratedProfile,
+      id: duplicateId,
+      generatedAt: now,
+      revisions: [
+        ...((source.revisions ?? []).map((revision) => JSON.parse(JSON.stringify(revision)))),
+        {
+          id: duplicateRevisionId,
+          createdAt: now,
+          kind: 'fork',
+          prompt: `Duplicated from ${source.id.slice(0, 8)}`,
+          snapshot: JSON.parse(JSON.stringify(source.profile)) as Record<string, unknown>,
+          parentRevisionId: source.activeRevisionId,
+        },
+      ],
+      activeRevisionId: duplicateRevisionId,
+    });
+
+    await storage.writeJson(`${PROFILES_DIR}/${duplicateProfile.id}.json`, duplicateProfile);
+    set((state) => ({
+      profiles: [duplicateProfile, ...state.profiles],
+      activeProfile: duplicateProfile,
+    }));
+    return duplicateProfile;
   },
 
   deleteProfile: async (id) => {
@@ -81,10 +141,11 @@ export const useProfileStore = create<ProfileState>((set, get) => ({
   },
 
   updateProfile: async (profile) => {
-    await storage.writeJson(`${PROFILES_DIR}/${profile.id}.json`, profile);
+    const normalized = normalizeProfile(profile);
+    await storage.writeJson(`${PROFILES_DIR}/${normalized.id}.json`, normalized);
     set((state) => ({
-      profiles: state.profiles.map((p) => (p.id === profile.id ? profile : p)),
-      activeProfile: state.activeProfile?.id === profile.id ? profile : state.activeProfile,
+      profiles: state.profiles.map((p) => (p.id === normalized.id ? normalized : p)),
+      activeProfile: state.activeProfile?.id === normalized.id ? normalized : state.activeProfile,
     }));
   },
 

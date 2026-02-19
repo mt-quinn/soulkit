@@ -3,20 +3,23 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
 import { cn, formatDate } from '@/lib/utils';
 import { PROVIDER_CONFIGS } from '@/services/types';
+import { resolveGeneratedProfileDisplayName } from '@/lib/profileIdentity';
+import { useSchemaStore } from '@/stores/schemaStore';
+import { Copy, Trash2 } from 'lucide-react';
 
 interface ProfileCardProps {
   profile: GeneratedProfile;
   active?: boolean;
   onClick?: () => void;
   compact?: boolean;
+  onDuplicate?: () => void;
+  onDelete?: () => void;
 }
 
-export function ProfileCard({ profile, active, onClick, compact }: ProfileCardProps) {
-  const displayName =
-    (profile.profile.name as string) ??
-    (profile.profile.full_name as string) ??
-    (profile.profile.character_name as string) ??
-    'Unnamed Character';
+export function ProfileCard({ profile, active, onClick, compact, onDuplicate, onDelete }: ProfileCardProps) {
+  const { presets } = useSchemaStore();
+  const schema = presets.find((preset) => preset.id === profile.schemaId) ?? null;
+  const displayName = resolveGeneratedProfileDisplayName(profile, { schema });
 
   const providerName = PROVIDER_CONFIGS[profile.provider]?.name ?? profile.provider;
 
@@ -24,7 +27,7 @@ export function ProfileCard({ profile, active, onClick, compact }: ProfileCardPr
     <Card
       onClick={onClick}
       className={cn(
-        'cursor-pointer transition-all hover:border-primary/50',
+        'group cursor-pointer transition-all hover:border-primary/50',
         active && 'border-primary ring-1 ring-primary/30',
         compact && 'p-0'
       )}
@@ -39,9 +42,39 @@ export function ProfileCard({ profile, active, onClick, compact }: ProfileCardPr
               {profile.schemaName}
             </p>
           </div>
-          <Badge variant="secondary" className="shrink-0 text-[10px]">
-            {providerName}
-          </Badge>
+          <div className="flex items-start gap-1.5 shrink-0">
+            {(onDuplicate || onDelete) && (
+              <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                {onDuplicate && (
+                  <button
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      onDuplicate();
+                    }}
+                    className="p-1 rounded hover:bg-background/50 cursor-pointer"
+                    title="Duplicate profile"
+                  >
+                    <Copy className="h-3 w-3" />
+                  </button>
+                )}
+                {onDelete && (
+                  <button
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      onDelete();
+                    }}
+                    className="p-1 rounded hover:bg-background/50 text-destructive cursor-pointer"
+                    title="Delete profile"
+                  >
+                    <Trash2 className="h-3 w-3" />
+                  </button>
+                )}
+              </div>
+            )}
+            <Badge variant="secondary" className="shrink-0 text-[10px]">
+              {providerName}
+            </Badge>
+          </div>
         </div>
       </CardHeader>
       {!compact && (

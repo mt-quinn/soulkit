@@ -5,8 +5,10 @@ import { Badge } from '@/components/ui/Badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
 import { toast } from '@/stores/toastStore';
 import { useProfileStore } from '@/stores/profileStore';
+import { useSchemaStore } from '@/stores/schemaStore';
 import { formatDate, cn } from '@/lib/utils';
 import { PROVIDER_CONFIGS } from '@/services/types';
+import { resolveGeneratedProfileDisplayName } from '@/lib/profileIdentity';
 import {
   Copy,
   Download,
@@ -24,6 +26,9 @@ interface ProfileViewerProps {
 export function ProfileViewer({ profile }: ProfileViewerProps) {
   const [showJson, setShowJson] = useState(false);
   const { deleteProfile } = useProfileStore();
+  const { presets } = useSchemaStore();
+  const schema = presets.find((preset) => preset.id === profile.schemaId) ?? null;
+  const displayName = resolveGeneratedProfileDisplayName(profile, { schema });
 
   const handleCopy = async () => {
     await navigator.clipboard.writeText(JSON.stringify(profile.profile, null, 2));
@@ -35,7 +40,7 @@ export function ProfileViewer({ profile }: ProfileViewerProps) {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    const name = (profile.profile.name as string) ?? (profile.profile.full_name as string) ?? 'character';
+    const name = displayName || 'character';
     a.download = `${name.toLowerCase().replace(/\s+/g, '-')}-${profile.id.slice(0, 8)}.json`;
     a.click();
     URL.revokeObjectURL(url);
@@ -55,9 +60,7 @@ export function ProfileViewer({ profile }: ProfileViewerProps) {
       <div className="flex items-start justify-between">
         <div>
           <h3 className="text-lg font-bold">
-            {(profile.profile.name as string) ??
-              (profile.profile.full_name as string) ??
-              'Unnamed Character'}
+            {displayName}
           </h3>
           <div className="flex items-center gap-2 mt-1 text-xs text-muted-foreground">
             <Badge variant="secondary" className="text-[10px]">{providerName}</Badge>
@@ -144,13 +147,29 @@ function RenderField({ fieldKey, value, depth }: { fieldKey: string; value: unkn
 
     // Array of primitives
     if (typeof value[0] !== 'object') {
+      const items = value.map((item) => String(item));
+      const looksNumbered = items.every((item) => /^\d+\.\s+/.test(item));
+
+      if (looksNumbered) {
+        return (
+          <div className="space-y-1">
+            <label className="text-xs font-medium text-muted-foreground">{label}</label>
+            <ol className="list-decimal list-inside space-y-0.5 text-sm">
+              {items.map((item, i) => (
+                <li key={i}>{item.replace(/^\d+\.\s+/, '')}</li>
+              ))}
+            </ol>
+          </div>
+        );
+      }
+
       return (
         <div className="space-y-1">
           <label className="text-xs font-medium text-muted-foreground">{label}</label>
           <div className="flex flex-wrap gap-1.5">
-            {value.map((item, i) => (
+            {items.map((item, i) => (
               <Badge key={i} variant="outline" className="text-xs font-normal">
-                {String(item)}
+                {item}
               </Badge>
             ))}
           </div>
